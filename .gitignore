@@ -1,0 +1,23 @@
+# KiCad
+*.lck
+*-backups/
+_autosave-*
+*.kicad_prl
+fp-info-cache
+\#auto_saved_files\#
+.history/
+
+# Arduino / build
+build/
+*.bin
+*.elf
+*.hex
+firmware/libraries/
+firmware/tests/test_host
+
+# Ground station logs
+ground/logs/
+logs/
+
+# OS
+.DS_Store

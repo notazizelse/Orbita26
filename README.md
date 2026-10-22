@@ -1,0 +1,75 @@
+# SnailPulse — Orbita 2026
+
+**Measuring a living snail's heartbeat in the stratosphere.**
+International Space Tournament *Orbita* 2026 · 3U CubeSat on the IntroSat.Platform · Team mentor: Ezoza Yuldosheva · Electronics and firmware: Azizbek No'monjonov
+
+We fly a garden snail (*Cornu aspersum*) to about 24 km. An infrared sensor glued to its shell watches the heart beat through the shell. An analog band-pass amplifier pulls out the tiny signal. The satellite's flight controller counts the beats and radios them to the ground every 2 seconds. Meanwhile a heater keeps the snail's box at 20 °C, and a hardware cutoff protects it even if the software fails.
+
+![SnailPulse schematic](docs/images/schematic_full.png)
+
+## How it works
+
+| Block | What it does | Key numbers |
+|---|---|---|
+| **A. Heartbeat sensor + amplifier** | TCRT5000 IR reflectance through the shell → RV3 load → high-pass → ×101 amplifier with low-pass → PB0 | LED 17 mA · pass band 0.16–3.4 Hz (10–200 bpm) · gain 101 (40 dB) |
+| **B. 1.65 V reference** | Divider + MCP6002 buffer; centres the signal in the 0–3.3 V ADC range | 3.3 V / 2, filtered at 3.2 Hz |
+| **C1. Heater switch** | 3 × 150 Ω heater, IRLZ44N low-side switch, PWM from PC6 | 50 Ω · 0.30 A · 4.4 W at 14.8 V |
+| **C2. Thermistors + hardware cutoff** | NTC1 → PB1 for firmware control; NTC2 → LM393 cuts the heater at ~40 °C with no software | 40 °C ↔ 1.14 V · −30 mV/°C |
+| **D. Connectors** | Locking JST-XH plugs to the sensor, thermistors, flight controller, SHT21, BMP280 and MAX30100 | I²C4 = PD12/PD13 · power from IntroBus_L and X8 |
+
+<details><summary>Block close-ups</summary>
+
+![A](docs/images/A_heartbeat_amp.png)
+![B](docs/images/B_vref.png)
+![C1](docs/images/C1_heater_switch.png)
+![C2](docs/images/C2_thermistors_cutoff.png)
+![D](docs/images/D_connectors.png)
+</details>
+
+> **Rev A review:** three wiring errors were found and are listed with fixes in [docs/Schematic_Review.md](docs/Schematic_Review.md): the heater connector bypasses the MOSFET, J1 is not connected to the sensor, and the NTC2 label is not connected. The images above show rev A as drawn.
+
+## Repository
+
+```
+Orbita26/
+├── README.md                     ← you are here
+├── hardware/
+│   ├── kicad/                    KiCad 10 project (Orbita26.kicad_pro / .kicad_sch)
+│   ├── SnailPulse_BOM.xlsx       parts + prices (Microelectronica, electron.uz)
+│   ├── SnailPulse_KiCad_Connections.xlsx   pin-by-pin wiring workbook
+│   ├── SnailPulse_wiring.pdf
+│   └── SnailPulse_shopping_list.md
+├── firmware/                     flight code for the IntroSat flight controller → firmware/README.md
+├── ground/snailpulse_ground.py   ground-station decoder (serial → console + CSV + plots)
+├── docs/
+│   ├── SnailPulse_Study_Guide.md every part explained + jury Q&A in Russian
+│   ├── SnailPulse_Math.md        every formula and number
+│   ├── Schematic_Review.md       rev A review and fixes
+│   ├── images/                   schematic renders
+│   └── research/                 mission and camera-payload research notes
+├── resources/                    organizer documents (IntroSat guide EN/RU, missions, Orbita 2025)
+└── budget/smeta.numbers          cost estimate
+```
+
+## Telemetry
+
+The flight controller sends four binary packet types. Each fits in one 58-byte LoRa packet and is protected by a CRC-16.
+
+| Packet | Every | Contents |
+|---|---|---|
+| SNAIL | 2 s | heart rate, last beat interval, beat count, signal quality, 2 s of waveform at 10 Hz |
+| BASE | 2 s | flight-controller sensors: pressure, ISA altitude, accel, gyro, magnetometer, board temperature |
+| ENV | 4 s | box temperature, humidity and pressure, heater temperature and duty, sensor status |
+| STATUS | 10 s | firmware version, boot count, radio and I²C/SD error counters, watchdog resets |
+
+Total is about 435 bit/s, 18 % of the 2.4 kbit/s link. Everything is also logged to microSD at full rate.
+
+Ground station: `python ground/snailpulse_ground.py --port <LoRa-UART port> --baud <its UART rate>`. After the flight: `--plot logs/`.
+
+## Bill of materials (main parts)
+
+TCRT5000 · MCP6002 · LM393 · IRLZ44N · 3 × 150 Ω 5 W · 2 × NTC 10 k · trimmers 50 k and 10 k · SHT21 (GY-21) · BMP280 · MAX30100 · JST-XH connectors · XT30. The full list with prices is in `hardware/SnailPulse_BOM.xlsx` (≈ 403 000 UZS including spares).
+
+## Credits
+
+Built on the organizers' IntroSat.Platform and [IntroStratLib](https://github.com/Obu-IntroSat/IntroStratLib-Public). The heartbeat method follows the IR-through-shell technique of Depledge & Andersen (1990) and Burnett et al. (2013). See the study guide for all sources.
