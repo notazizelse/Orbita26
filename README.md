@@ -5,7 +5,32 @@ International Space Tournament *Orbita* 2026 · 3U CubeSat on the IntroSat.Platf
 
 We fly a garden snail (*Cornu aspersum*) to about 24 km. An infrared sensor glued to its shell watches the heart beat through the shell. An analog band-pass amplifier pulls out the tiny signal. The satellite's flight controller counts the beats and radios them to the ground every 2 seconds. Meanwhile a heater keeps the snail's box at 20 °C, and a hardware cutoff protects it even if the software fails.
 
-![SnailPulse schematic](docs/images/schematic_full.png)
+![SnailPulse 3D preview](docs/3d/snailpulse_3d_iso.png)
+
+*Concept render of the payload board. The flight unit is built on perfboard from the same schematic. [3D preview →](#3d-preview)*
+
+## What's new (23 Oct 2026, schematic rev B)
+
+The schematic in `hardware/kicad/Orbita26.kicad_sch` was re-checked today by extracting its netlist and comparing it pin by pin with the intended design.
+
+**Result: all 21 nets connect exactly as designed.** The three rev A wiring errors are gone, and the only unconnected pin is the intentional no-connect on U5 pin 7.
+
+| Change since rev A | Status |
+|---|---|
+| J3 heater cable now switched by Q1 (`HEATER_LO` on J3.2 and the Q1 drain) instead of sitting across the battery | ✅ fixed |
+| J1 sensor cable connected to the circuit (`LED_A`, `SENSE` labels on both ends) | ✅ fixed |
+| J4 pin 3 connected to the cutoff thermistor node (`NTC2` on R18 / TH2 / C7 / U5.3) | ✅ fixed |
+| `HEATER_L0` (zero) renamed `HEATER_LO` | ✅ fixed |
+| PWR_FLAG on every power net, including GNDPWR | ✅ added |
+| Footprints on every on-board part (JST-XH, XT30, 5.0 mm screw terminal for the heater, DIP-8 sockets, THT R/C/trimmers, net tie) | ✅ added |
+| U1 (TCRT5000), TH1, TH2, R8–R10 marked "exclude from board" (they live on cables) | ✅ done |
+| Title block still says **rev A, 22 Oct** | ⬜ change to rev B |
+| Reference gaps: R2, R4, R5, R14, C1, RV1, U3, U4 are unused | ⬜ run *Annotate* before exporting the BOM |
+
+New documents:
+
+- **[docs/Firmware_and_Integration.md](docs/Firmware_and_Integration.md)** explains how the flight code works (sampling, beat detection, heater control, packets, SD log, fault handling) and how SnailPulse plugs into the IntroSat flight controller, power module and radio board.
+- **[docs/3d/](docs/3d/)** has the 3D preview of how the board could look as a PCB.
 
 ## How it works
 
@@ -17,6 +42,8 @@ We fly a garden snail (*Cornu aspersum*) to about 24 km. An infrared sensor glue
 | **C2. Thermistors + hardware cutoff** | NTC1 → PB1 for firmware control; NTC2 → LM393 cuts the heater at ~40 °C with no software | 40 °C ↔ 1.14 V · −30 mV/°C |
 | **D. Connectors** | Locking JST-XH plugs to the sensor, thermistors, flight controller, SHT21, BMP280 and MAX30100 | I²C4 = PD12/PD13 · power from IntroBus_L and X8 |
 
+![SnailPulse schematic](docs/images/schematic_full.png)
+
 <details><summary>Block close-ups</summary>
 
 ![A](docs/images/A_heartbeat_amp.png)
@@ -26,7 +53,32 @@ We fly a garden snail (*Cornu aspersum*) to about 24 km. An infrared sensor glue
 ![D](docs/images/D_connectors.png)
 </details>
 
-> **Rev A review:** three wiring errors were found and are listed with fixes in [docs/Schematic_Review.md](docs/Schematic_Review.md): the heater connector bypasses the MOSFET, J1 is not connected to the sensor, and the NTC2 label is not connected. The images above show rev A as drawn.
+Rev A review and the reasoning behind every block: [docs/Schematic_Review.md](docs/Schematic_Review.md).
+
+## How it connects to the IntroSat.Platform
+
+SnailPulse doesn't replace any platform board. It adds one payload board and our firmware on the existing flight controller (STM32H750).
+
+| Our plug | Goes to | Signals |
+|---|---|---|
+| **J6** (5-pin) | IntroBus_L | PB0 heartbeat ADC · PB1 heater thermistor · PC6 heater PWM · PD12/PD13 I²C4 |
+| **J5** (3-pin) | IntroBus_L | +5V_IS · +3V3_IS · GND |
+| **J2** (XT30) | Power module X8 | 14.8 V for the heater only (red +, black −) |
+| **J7 / J8 / J9** | SHT21 · BMP280 · MAX30100 | I²C4 at 0x40 · 0x76 · 0x57 |
+
+Data path: PB0 is sampled at 50 Hz in a timer interrupt → beat detector → binary packet → UART1 → communication board → LoRa 433 MHz → ground LoRa-UART module → `ground/snailpulse_ground.py`. The full story, with the pin table, power budget and failure handling, is in [docs/Firmware_and_Integration.md](docs/Firmware_and_Integration.md).
+
+## 3D preview
+
+| | |
+|---|---|
+| ![Angle](docs/3d/snailpulse_3d_iso.png) | ![Low](docs/3d/snailpulse_3d_low.png) |
+| ![Above](docs/3d/snailpulse_3d_top.png) | ![Under](docs/3d/snailpulse_3d_under.png) |
+
+- `docs/3d/SnailPulse_3D.html`: interactive viewer. Download it and open it in a browser (needs internet for the 3D library). Turn the board, look underneath, click any part to see its job and its nets.
+- `docs/3d/SnailPulse_board.glb`: the same model as a 3D file, in metres. Opens in Blender, the Windows 3D Viewer, or any online glTF viewer.
+
+Reference numbers in the preview match the schematic. It is a **concept render, not a fabrication file**: the parts and footprints are real, but the board outline, positions and the traces painted on its surface are illustrative.
 
 ## Repository
 
@@ -42,6 +94,8 @@ Orbita26/
 ├── firmware/                     flight code for the IntroSat flight controller → firmware/README.md
 ├── ground/snailpulse_ground.py   ground-station decoder (serial → console + CSV + plots)
 ├── docs/
+│   ├── Firmware_and_Integration.md  how the code works and plugs into IntroSat   (new)
+│   ├── 3d/                       3D preview: viewer, .glb model, renders          (new)
 │   ├── SnailPulse_Study_Guide.md every part explained + jury Q&A in Russian
 │   ├── SnailPulse_Math.md        every formula and number
 │   ├── Schematic_Review.md       rev A review and fixes
@@ -65,6 +119,13 @@ The flight controller sends four binary packet types. Each fits in one 58-byte L
 Total is about 435 bit/s, 18 % of the 2.4 kbit/s link. Everything is also logged to microSD at full rate.
 
 Ground station: `python ground/snailpulse_ground.py --port <LoRa-UART port> --baud <its UART rate>`. After the flight: `--plot logs/`.
+
+## Still to do before flight
+
+- [ ] Title block → rev B; run *Annotate* to close the reference gaps.
+- [ ] First compile and run of `SnailPulse_Flight` on the real flight controller (it passes the PC tests and a syntax check, but hasn't run on the STM32 yet).
+- [ ] Tune RV3 on a live snail with `firmware/tools/HB_Tune`; set RV2 to ≈ 1.1 V and test the 40 °C cutoff.
+- [ ] Freezer run of the whole stack for ~3 hours.
 
 ## Bill of materials (main parts)
 

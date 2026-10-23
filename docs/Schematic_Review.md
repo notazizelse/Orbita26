@@ -1,8 +1,10 @@
-# SnailPulse schematic review — rev A (22 Oct 2026)
+# SnailPulse schematic review — rev A → rev B (22 Oct 2026)
+
+> **Status 22 Oct, 21:00:** fixes 1–3 are done and verified by netlist (J3.2 = `HEATER_L0` with Q1 drain; `LED_A`/`SENSE` reach U1, R1, RV3, C11; `NTC2` reaches TH2/R18/C7/U5.3). PWR_FLAGs added on +5V, +3V3, GND, +14V8. U1, TH1, TH2, R8–R10 excluded from board. **Still open:** PWR_FLAG on GNDPWR, footprints, re-annotation, `HEATER_L0` is spelled with a zero.
 
 I checked `hardware/kicad/Orbita26.kicad_sch` by extracting its netlist and comparing it with `hardware/SnailPulse_KiCad_Connections.xlsx`, the intended design.
 
-![Issues marked on the schematic](images/schematic_issues.png)
+![Rev A issues (now fixed)](images/schematic_issues_revA.png)
 
 ## Must fix before wiring the board
 
