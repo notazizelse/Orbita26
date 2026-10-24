@@ -9,6 +9,19 @@ We fly a garden snail (*Cornu aspersum*) to about 24 km. An infrared sensor glue
 
 *Concept render of the payload board. The flight unit is built on perfboard from the same schematic. [3D preview →](#3d-preview)*
 
+## Schematic
+
+![SnailPulse schematic, rev B](docs/images/schematic_full.png)
+
+*Rev B schematic, plotted from `hardware/kicad/Orbita26.kicad_sch` on 24 Oct 2026. Vector version for zooming and printing: [hardware/Orbita26_schematic.pdf](hardware/Orbita26_schematic.pdf). Block close-ups are under [How it works](#how-it-works).*
+
+## What's new (24 Oct 2026)
+
+- **Schematic picture redrawn.** `docs/images/schematic_full.png` and the five block close-ups now show rev B (`HEATER_LO`, J3 switched by Q1, NTC2 on J4.3). The old pictures were still from before the fixes. A vector PDF of the sheet is in `hardware/`.
+- **Tournament final paperwork** added for the trip to Moscow (see [Orbita 2026 final](#orbita-2026-final-moscow)).
+- **Parts list** added in two more forms: `SnailPulse_BOM.xlsx` at the top level (same file as `hardware/SnailPulse_BOM.xlsx`) and `Orbita SnailPulse Parts List.numbers` (the Numbers version with shop names and links).
+- **Radio reference photo**: `micoair_lr900_915mhz_500mw_radio_telemetry_with_30km_range_5_550x550.jpeg`, the MicoAir LR900 telemetry radio pair (915 MHz, 500 mW).
+
 ## What's new (23 Oct 2026, schematic rev B)
 
 The schematic in `hardware/kicad/Orbita26.kicad_sch` was re-checked today by extracting its netlist and comparing it pin by pin with the intended design.
@@ -42,9 +55,9 @@ New documents:
 | **C2. Thermistors + hardware cutoff** | NTC1 → PB1 for firmware control; NTC2 → LM393 cuts the heater at ~40 °C with no software | 40 °C ↔ 1.14 V · −30 mV/°C |
 | **D. Connectors** | Locking JST-XH plugs to the sensor, thermistors, flight controller, SHT21, BMP280 and MAX30100 | I²C4 = PD12/PD13 · power from IntroBus_L and X8 |
 
-![SnailPulse schematic](docs/images/schematic_full.png)
+Full sheet: [Schematic](#schematic) above.
 
-<details><summary>Block close-ups</summary>
+<details><summary>Block close-ups (rev B)</summary>
 
 ![A](docs/images/A_heartbeat_amp.png)
 ![B](docs/images/B_vref.png)
@@ -80,13 +93,33 @@ Data path: PB0 is sampled at 50 Hz in a timer interrupt → beat detector → bi
 
 Reference numbers in the preview match the schematic. It is a **concept render, not a fabrication file**: the parts and footprints are real, but the board outline, positions and the traces painted on its surface are illustrative.
 
+## Orbita 2026 final (Moscow)
+
+The final runs from **26 October to 1 November 2026** at Bauman Moscow State Technical University, organized by ANO CIKENO together with HSE University. Arrival and workstation setup are on 25 October.
+
+| File | What it is |
+|---|---|
+| `International_tournament_Orbita_Schedule_EN.pdf` | Day-by-day programme of the final (venues, lab hours, excursions) |
+| `Письмо ЦИКЕНО Узбекистан.pdf` | Organizers' letter No. 22-10-26/3 (22 Oct 2026) confirming the Uzbek delegation as finalists |
+| `russia team.pdf` | Uzbekistan delegation list with each member's role (in Uzbek) |
+| `ClearView — presentation (EN).pdf` | Our delegation's Cosmonautics Project Contest entry: *ClearView*, a spacesuit visor wiper with a self-cleaning edge (13 slides) |
+
 ## Repository
 
 ```
 Orbita26/
 ├── README.md                     ← you are here
+├── International_tournament_Orbita_Schedule_EN.pdf   final programme      (new)
+├── Письмо ЦИКЕНО Узбекистан.pdf  organizers' confirmation letter          (new)
+├── russia team.pdf               delegation list                         (new)
+├── ClearView — presentation (EN).pdf   Cosmonautics Project Contest entry (new)
+├── SnailPulse_BOM.xlsx           copy of hardware/SnailPulse_BOM.xlsx     (new)
+├── Orbita SnailPulse Parts List.numbers   parts list with shop links     (new)
+├── SnailPulse_KiCad_Connections.numbers   wiring workbook (Numbers)
+├── micoair_lr900_…_550x550.jpeg  MicoAir LR900 radio photo                (new)
 ├── hardware/
 │   ├── kicad/                    KiCad 10 project (Orbita26.kicad_pro / .kicad_sch)
+│   ├── Orbita26_schematic.pdf    rev B schematic, vector                  (new)
 │   ├── SnailPulse_BOM.xlsx       parts + prices (Microelectronica, electron.uz)
 │   ├── SnailPulse_KiCad_Connections.xlsx   pin-by-pin wiring workbook
 │   ├── SnailPulse_wiring.pdf
@@ -99,7 +132,7 @@ Orbita26/
 │   ├── SnailPulse_Study_Guide.md every part explained + jury Q&A in Russian
 │   ├── SnailPulse_Math.md        every formula and number
 │   ├── Schematic_Review.md       rev A review and fixes
-│   ├── images/                   schematic renders
+│   ├── images/                   schematic renders (rev B, redrawn 24 Oct)
 │   └── research/                 mission and camera-payload research notes
 ├── resources/                    organizer documents (IntroSat guide EN/RU, missions, Orbita 2025)
 └── budget/smeta.numbers          cost estimate
