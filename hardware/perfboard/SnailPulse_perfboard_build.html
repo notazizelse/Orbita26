@@ -1,0 +1,680 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>SnailPulse Perfboard Build</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: bench sheet — big zoomable board on the left, build steps + inspector on the right, parts reference below */
+:root{
+  --bg:#edf0ee; --panel:#f8faf9; --ink:#16201b; --muted:#5d6b64; --line:#cfd8d3; --accent:#0b6e4f; --accent-ink:#ffffff;
+  --stage:#dfe5e1; --hl:#ffb700;
+  --board:#2e6b3f; --board-edge:#24532f; --hole:#0f2416; --copper:#c98a4b; --solder:#c9cdd1; --silk:#e9f2ea;
+  --f-display:"Barlow Semi Condensed","Arial Narrow",sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --panel:#18201b; --ink:#e3ebe6; --muted:#93a39a; --line:#2c3831; --accent:#3fbf8a; --accent-ink:#0b1510;
+  --stage:#0c110e; --hl:#ffc533; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --panel:#18201b; --ink:#e3ebe6; --muted:#93a39a; --line:#2c3831; --accent:#3fbf8a; --accent-ink:#0b1510;
+  --stage:#0c110e; --hl:#ffc533; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1440px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(28px,4vw,40px);line-height:1.05;margin:0;letter-spacing:.2px;text-wrap:balance}
+.sub{color:var(--muted);margin:4px 0 0;max-width:70ch}
+.meta{font-family:var(--f-mono);font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap}
+.meta b{color:var(--ink);font-weight:500}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:20px;align-items:start}
+@media (max-width:1100px){.main{grid-template-columns:minmax(0,1fr)}}
+.stagebox{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;min-width:0}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{font:500 13px var(--f-body);background:transparent;color:var(--ink);border:0;padding:6px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.seg button:focus-visible,.btn:focus-visible,.step:focus-visible,.netbtn:focus-visible{outline:2px solid var(--hl);outline-offset:2px}
+.btn{font:500 13px var(--f-body);background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:6px 10px;cursor:pointer}
+.chk{display:inline-flex;gap:6px;align-items:center;font-size:13px;color:var(--muted);cursor:pointer}
+.spacer{flex:1}
+.stage{overflow:auto;background:var(--stage);max-height:min(82vh,980px)}
+.stage svg{display:block;width:100%;height:auto;min-width:640px}
+.stage[data-zoom="2"] svg{width:150%;min-width:960px}
+.stage[data-zoom="3"] svg{width:220%;min-width:1400px}
+.legend{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-top:1px solid var(--line)}
+.netbtn{display:inline-flex;align-items:center;gap:6px;font:500 12px var(--f-mono);border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:999px;padding:3px 10px 3px 6px;cursor:pointer}
+.netbtn i{width:12px;height:12px;border-radius:50%;display:inline-block}
+.netbtn[aria-pressed="true"]{border-color:var(--ink);background:var(--bg)}
+aside{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.card h2{font-family:var(--f-display);font-weight:600;font-size:21px;margin:0 0 8px;letter-spacing:.2px}
+.card h3{font-family:var(--f-display);font-weight:600;font-size:17px;margin:0 0 4px}
+.steps{display:flex;flex-direction:column;gap:6px;max-height:min(70vh,820px);overflow:auto;padding-right:4px}
+.step{display:grid;grid-template-columns:28px 1fr;gap:4px 10px;text-align:left;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--ink);padding:9px 10px;cursor:pointer;font:inherit}
+.step .n{font:600 13px var(--f-mono);width:26px;height:26px;border-radius:50%;display:grid;place-items:center;border:1.5px solid var(--muted);color:var(--muted)}
+.step .t{font-weight:600}
+.step .d{grid-column:2;font-size:13px;color:var(--muted);display:none}
+.step[aria-current="step"]{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.step[aria-current="step"] .d{display:block;color:var(--ink)}
+.step[aria-current="step"] .n{border-color:var(--accent);color:var(--accent)}
+.step.done .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.d ul{margin:6px 0 0;padding-left:18px}
+.d li{margin:2px 0}
+.d .k{font-family:var(--f-mono);font-size:12px}
+.mark{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px}
+.inspector{font-size:14px}
+.inspector .hint{color:var(--muted)}
+.inspector table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+.inspector td{border-top:1px solid var(--line);padding:5px 4px;vertical-align:top}
+.inspector td:first-child{font-family:var(--f-mono);white-space:nowrap;color:var(--muted);width:1%}
+.mono{font-family:var(--f-mono)}
+.pill{display:inline-block;font:500 11px var(--f-mono);padding:1px 7px;border-radius:999px;border:1px solid currentColor;margin-left:4px}
+.ref h2{font-family:var(--f-display);font-weight:700;font-size:28px;margin:8px 0 4px}
+.refgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.refgrid .card svg{width:100%;height:auto;display:block;background:var(--stage);border-radius:8px;margin:6px 0 10px}
+.refgrid p,.refgrid li{font-size:14px}
+.refgrid ul,.refgrid ol{padding-left:20px;margin:6px 0}
+.bands{width:100%;border-collapse:collapse;font-size:13px}
+.bands td{padding:5px 4px;border-top:1px solid var(--line)}
+.sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:2px;border:1px solid rgba(0,0,0,.25)}
+.warn{border-left:3px solid #d9480f;padding:6px 10px;background:color-mix(in srgb,#d9480f 9%,transparent);border-radius:0 6px 6px 0;font-size:13px}
+/* svg classes */
+svg text{font-family:var(--f-mono)}
+.dimmable{transition:opacity .15s}
+svg.sel .dimmable{opacity:.16}
+svg.sel .dimmable.on{opacity:1}
+svg.sel .trace.on{filter:drop-shadow(0 0 3px var(--hl))}
+svg.sel .trace.on path[stroke-dasharray]{stroke-dasharray:none;stroke-width:4.5}
+.gl{fill:var(--muted);font-size:7px}
+.gl.b{fill:var(--ink);font-weight:600}
+.lbl{font-size:9px;fill:var(--ink)}
+.offlbl{font-size:11px;fill:var(--ink);font-weight:600}
+.offpin{font-size:9.5px;fill:var(--ink)}
+.part{cursor:pointer}
+.part:hover .outline{stroke:var(--hl);stroke-width:2}
+@media (prefers-reduced-motion:reduce){.dimmable{transition:none}}
+.sub a{color:var(--accent);font-weight:600}
+/* step tabs + requirements */
+.tabs{display:flex;gap:2px;margin:4px 0 8px;border-bottom:1px solid var(--line)}
+.tabs button{font:600 13px var(--f-body);background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:6px 8px;cursor:pointer;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs button:focus-visible{outline:2px solid var(--hl);outline-offset:1px}
+.cnt{font:500 11px var(--f-mono);padding:1px 6px;border-radius:999px;background:var(--bg);border:1px solid var(--line);margin-left:3px}
+.cnt.all{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.rh{margin:10px 0 2px;font-weight:600;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.rq{display:grid;grid-template-columns:18px 1fr;gap:8px;padding:7px 0;border-top:1px dashed var(--line)}
+.rq input{margin-top:3px}
+.rq.ok .rw,.rq.ok .ex,.rq.ok .fx{opacity:.55}
+.mode{display:inline-block;min-width:34px;text-align:center;font:600 10.5px var(--f-mono);padding:1px 5px;border-radius:4px;color:#fff;margin-right:3px;vertical-align:1px}
+.m-beep{background:#1971c2}.m-ohm{background:#7048e8}.m-v{background:#d9480f}.m-diode{background:#2b8a3e}.m-cap{background:#0c8599}.m-eye{background:#5c677d}
+.where{font-weight:500}
+.where[data-nets]{text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}
+.ex{font-size:12.5px;margin-top:2px}
+.fx{font-size:12px;color:var(--muted);margin-top:2px}
+.legendm{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11.5px;color:var(--muted);margin:2px 0 4px}
+/* your parts */
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:760px){.pgrid{grid-template-columns:minmax(0,1fr)}}
+.pgrid .wide{grid-column:1/-1}
+.pgrid h3{font-family:var(--f-display);font-weight:600;font-size:19px;margin:0 0 6px}
+.pgrid p,.pgrid li{font-size:14px}
+.pgrid ol{padding-left:20px;margin:6px 0}
+.pgrid li{margin:4px 0}
+.vt{width:100%;border-collapse:collapse;font-size:14px}
+.vt td{padding:7px 4px;border-top:1px solid var(--line);vertical-align:top}
+.vt td:first-child{width:26px;font:700 15px var(--f-mono)}
+.yes{color:var(--accent)} .no{color:#d9480f}
+.tw{overflow-x:auto}
+.pt{width:100%;border-collapse:collapse;font-size:13.5px;min-width:760px}
+.pt th{text-align:left;font:600 11.5px var(--f-mono);color:var(--muted);padding:6px;border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.3px}
+.pt td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:top}
+.pt td:nth-child(2){font-family:var(--f-mono);text-align:center}
+.tag{display:inline-block;font:500 11px var(--f-mono);padding:1px 7px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.tag.on{color:var(--accent)} .tag.off{color:var(--muted)} .tag.w{color:#d9480f}
+.q{display:block;color:var(--muted);font-style:italic;margin-bottom:2px}
+</style>
+
+<div class="wrap">
+<header>
+  <div>
+    <h1>SnailPulse Perfboard Build</h1>
+    <p class="sub">Rev C, heartbeat only. Every part sits on a real 2.54&nbsp;mm hole grid, 30 × 30 holes (76&nbsp;mm square). Tap a step, a part or a net to light up exactly what goes where. Bottom view is mirrored, the way the board looks when you flip it to solder.</p>
+    <p class="sub"><b>Updated 24 Oct for the parts you actually have.</b> New step 1 (measure parts, desolder the TCRT5000). Every step now has a <b>Requirements</b> tab: the multimeter checks to pass before you start the next step. <a href="#yourparts">Your parts list, answered ↓</a></p>
+  </div>
+  <div class="meta"><span>Board <b>76.2 × 76.2 mm</b></span><span>Holes <b>c1–c30 · r1–r30</b></span><span>Checked against <b>Orbita26 rev C netlist</b></span><span>Parts <b>your list, 24 Oct</b></span></div>
+</header>
+
+<div class="main">
+  <section class="stagebox" aria-label="Board view">
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="View side">
+        <button id="vTop" aria-pressed="true">Top · parts side</button>
+        <button id="vBot" aria-pressed="false">Bottom · solder side</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="xray" checked> Show copper traces through the board</label>
+      <label class="chk"><input type="checkbox" id="offb" checked> Off-board wiring</label>
+      <span class="spacer"></span>
+      <div class="seg" role="group" aria-label="Zoom">
+        <button data-z="1" aria-pressed="true">1×</button><button data-z="2" aria-pressed="false">1.5×</button><button data-z="3" aria-pressed="false">2.2×</button>
+      </div>
+      <button class="btn" id="clear">Clear highlight</button>
+    </div>
+    <div class="stage" id="stage" data-zoom="1"><svg id="svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Perfboard layout"></svg></div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h2>Build steps</h2>
+      <div class="steps" id="steps"></div>
+    </div>
+    <div class="card inspector" id="insp">
+      <h2>Inspector</h2>
+      <p class="hint">Tap any part, pad or wire on the board to see each pin, its hole and what it connects to.</p>
+    </div>
+  </aside>
+</div>
+
+<section class="ref" id="yourparts" aria-label="Your parts">
+  <h2>Your parts, checked against the build</h2>
+  <p class="sub" style="margin-bottom:12px">Your Numbers list row by row: where each part goes, what's left over, and answers to the notes column.</p>
+  <div class="pgrid">
+    <div class="card">
+      <h3>Can we still do every experiment?</h3>
+      <table class="vt">
+        <tr><td class="yes">✓</td><td><b>Heartbeat through the shell</b> (TCRT5000 → MCP6002 amplifier → PB0). Every part is on your list. The TCRT5000 comes off one HW-511.</td></tr>
+        <tr><td class="yes">✓</td><td><b>Box air:</b> temperature and humidity (GY-21 / SHT21) and pressure (BMP280).</td></tr>
+        <tr><td class="yes">✓</td><td><b>Backup pulse sensor</b> (MAX30100), after one check of its I²C pull-ups in step 10.</td></tr>
+        <tr><td class="no">✗</td><td><b>Heater at 20 °C + 40 °C hardware cutoff.</b> You dropped it on purpose: insulation instead. You still have most of it (IRLZ44N, LM393, XT30, 2 × 150 Ω). Missing: the two 10 k NTC thermistors and the third 150 Ω. With two resistors it would be 75 Ω, 2.9 W at 14.8 V instead of 4.4 W.</td></tr>
+        <tr><td class="no">✗</td><td><b>ADS-B receiver idea.</b> Not with these parts. It needs an SDR receiver for 1090 MHz, its antenna and a computer to decode. None of that is on this list.</td></tr>
+      </table>
+      <p style="font-size:13px;color:var(--muted)">With no heater, heart rate against box temperature becomes your main result. That makes where the SHT21 sits in the box air more important.</p>
+    </div>
+    <div class="card">
+      <h3>What your parts change in the build</h3>
+      <ol>
+        <li><b>New step 1:</b> measure every part and desolder the TCRT5000 from an HW-511. The second HW-511 stays whole as a spare sensor.</li>
+        <li><b>C3 and C5 use your 104s.</b> The old "still to buy" fallback is gone. The smaller 104s fit the tight spots better.</li>
+        <li><b>All three of your 474s are used</b> (C2, C11a, C11b), so you have none spare. If one cracks: C2 → five 104 in parallel (0.5 µF, low-pass 3.2 Hz). C11 → one 474 + four 104 (0.87 µF, corner 0.18 Hz). You have enough 104s for one of these fallbacks, not both.</li>
+        <li><b>1 MΩ is in your kit</b>, so R15 stays as drawn.</li>
+        <li><b>These don't go on the board:</b> IRLZ44N, LM393P, 150 Ω 5 W, XT30, 1000 µF.</li>
+        <li><b>Not on your list but still needed:</b> perfboard, silicone wire, a 4-core cable for the TCRT5000, solder + wick, hot glue. A DIP-8 socket is optional.</li>
+      </ol>
+    </div>
+    <div class="card wide">
+      <h3>Row by row</h3>
+      <div class="tw"><table class="pt">
+        <thead><tr><th>Your row</th><th>Have</th><th>Goes to</th><th>Spare</th><th>Your note → answer</th></tr></thead>
+        <tbody>
+        <tr><td><b>Resistor pack</b></td><td>1</td><td><span class="tag on">on board</span><br>R1 220 Ω · R3, R16 1 kΩ · R6, R7 10 kΩ · R17 100 kΩ · R15 1 MΩ</td><td>rest of kit</td><td>It has every value the board needs. Measure each one in step 1 before soldering, because kits get mixed up.</td></tr>
+        <tr><td><b>bmp280</b></td><td>1</td><td><span class="tag on">off-board</span><br>Box pressure, I²C 0x76</td><td>0</td><td>Wire SDO to its own GND, or the address changes to 0x77.</td></tr>
+        <tr><td><b>hw-511</b></td><td>2</td><td><span class="tag on">sensor</span><br>TCRT5000 from one of them, glued to the shell</td><td>1 module</td><td>HW-511 is a robot line-follower board. You only need the black-and-blue TCRT5000 on it. The LM393, pot and LEDs stay on the module.</td></tr>
+        <tr><td><b>gy-21</b></td><td>1</td><td><span class="tag on">off-board</span><br>SHT21, box temperature + humidity, 0x40</td><td>0</td><td>Mount it in the box air, away from the snail's wet surfaces.</td></tr>
+        <tr><td><b>5w150ohmJ</b></td><td>2</td><td><span class="tag off">not used</span><br>Was the heater</td><td>2</td><td>"J" on a resistor means ±5 % tolerance.</td></tr>
+        <tr><td><b>503 baoter 3296</b></td><td>2</td><td><span class="tag on">on board</span><br>RV3</td><td>1</td><td><span class="q">"Rv3 I think it is"</span>Yes. 503 = 50 followed by 3 zeros = 50 000 Ω = 50 kΩ. Baoter is the maker; 3296 is the trimmer type.</td></tr>
+        <tr><td><b>50V 10uF polarized cap</b></td><td>5</td><td><span class="tag on">on board</span><br>C4, C10</td><td>3</td><td><span class="q">"It is green"</span>Green is just the maker's sleeve colour. What matters: 10 µF, 50 V (far above our 3.3 V), and the stripe marks the minus leg, which is also the shorter one.</td></tr>
+        <tr><td><b>irlz44n</b></td><td>2</td><td><span class="tag off">not used</span><br>Was the heater switch</td><td>2</td><td>Give these to the team whose experiment has the heaters, if they need a MOSFET.</td></tr>
+        <tr><td><b>max30100</b></td><td>1</td><td><span class="tag on">off-board</span><br>Backup pulse sensor, 0x57</td><td>0</td><td><span class="q">"Is this a backup if the whole thing wouldn't work?"</span>Yes. It is a second, completely separate way to see the pulse: red + IR light with its own chip, read over I²C. It skips the TCRT5000 and our amplifier, so if that chain fails the firmware still has pulse data. Caveat: it's made for fingertips. Through a snail shell it is unproven, so try it on a snail before the flight. It also needs the pull-up check in step 10.</td></tr>
+        <tr><td><b>mcp6002</b></td><td>2</td><td><span class="tag on">on board</span><br>U2</td><td>1</td><td><span class="q">"Idk what this is for"</span>It's the heart of the analog side: two op-amps in one 8-pin chip. Half A amplifies the heartbeat ×101. Through the shell the signal is only a few millivolts, too small for the STM32 to see. Half B makes a steady 1.65 V middle line for the signal to swing around, so it fits the ADC's 0–3.3 V range. Keep the spare in your Moscow kit.</td></tr>
+        <tr><td><b>lm393p</b></td><td>2</td><td><span class="tag off">not used</span><br>Was the overheat cutoff</td><td>2</td><td><span class="q">"Nor this"</span>A dual comparator: it answers "is voltage A higher than voltage B?" with on/off. In rev B it watched the heater thermistor and cut the heater at 40 °C without any software. Rev C has no heater, so it's not needed. (Each HW-511 carries the same chip in a tiny surface-mount package.)</td></tr>
+        <tr><td><b>474</b> (small cap)</td><td>3</td><td><span class="tag on">on board</span><br>C2, C11a, C11b</td><td><span class="tag w">0</span></td><td>474 = 47 followed by 4 zeros pF = 470 000 pF = 470 nF. <b>All three are used.</b> Don't lose one; the fallbacks are listed above.</td></tr>
+        <tr><td><b>xt30</b></td><td>2</td><td><span class="tag off">not used</span><br>Was 14.8 V heater power from X8</td><td>2</td><td>Rev C runs only on the FC's +5 V and +3.3 V.</td></tr>
+        <tr><td><b>104</b> (small cap)</td><td>5</td><td><span class="tag on">on board</span><br>C3, C5 (from either 104 row)</td><td rowspan="2">8</td><td>104 = 10 followed by 4 zeros pF = 100 nF.</td></tr>
+        <tr><td><b>104, even smaller</b></td><td>5</td><td><span class="tag on">on board</span><br>Best choice for C3, C5</td><td>Same 100 nF. Smaller usually means multilayer ceramic or a lower voltage rating. Both are fine at 3.3 V, and the small ones fit better between the rails.</td></tr>
+        <tr><td><b>1000uF 16V</b></td><td>2</td><td><span class="tag off">not used</span></td><td>2</td><td>Not part of the design. Keep it off the 14.8 V battery line: a fully charged 4S pack is 16.8 V, above its 16 V rating.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</section>
+
+<section class="ref" aria-label="Parts reference">
+  <h2>What each part looks like and how to find its pins</h2>
+  <div class="refgrid" id="refgrid"></div>
+</section>
+</div>
+
+<script>
+const L = {"parts":[{"ref":"U2","kind":"dip8","value":"MCP6002","pins":[{"name":"1","x":11,"y":16,"net":"OUT"},{"name":"2","x":12,"y":16,"net":"FB"},{"name":"3","x":13,"y":16,"net":"HP_IN"},{"name":"4","x":14,"y":16,"net":"GND"},{"name":"5","x":14,"y":13,"net":"REF_DIV"},{"name":"6","x":13,"y":13,"net":"VREF"},{"name":"7","x":12,"y":13,"net":"VREF"},{"name":"8","x":11,"y":13,"net":"+3V3"}],"step":2},{"ref":"R1","kind":"res","value":"220 Ω","pins":[{"name":"a","x":23,"y":12,"net":"+5V"},{"name":"b","x":23,"y":16,"net":"LED_A"}],"step":7},{"ref":"R3","kind":"res","value":"1 kΩ","pins":[{"name":"a","x":7,"y":16,"net":"OUT"},{"name":"b","x":7,"y":12,"net":"HB_ADC"}],"step":5},{"ref":"R6","kind":"res","value":"10 kΩ","pins":[{"name":"a","x":16,"y":4,"net":"+3V3"},{"name":"b","x":16,"y":8,"net":"REF_DIV"}],"step":4},{"ref":"R7","kind":"res","value":"10 kΩ","pins":[{"name":"a","x":18,"y":3,"net":"GND"},{"name":"b","x":18,"y":7,"net":"REF_DIV"}],"step":4},{"ref":"R15","kind":"res","value":"1 MΩ","pins":[{"name":"a","x":13,"y":20,"net":"HP_IN"},{"name":"b","x":17,"y":20,"net":"VREF"}],"step":6},{"ref":"R16","kind":"res","value":"1 kΩ","pins":[{"name":"a","x":12,"y":18,"net":"FB"},{"name":"b","x":16,"y":18,"net":"VREF"}],"step":5},{"ref":"R17","kind":"res","value":"100 kΩ","pins":[{"name":"a","x":12,"y":19,"net":"FB"},{"name":"b","x":8,"y":19,"net":"OUT"}],"step":5},{"ref":"C2","kind":"cap","value":"470 nF","pins":[{"name":"a","x":12,"y":21,"net":"FB"},{"name":"b","x":8,"y":21,"net":"OUT"}],"code":"474","step":5},{"ref":"C3","kind":"cap","value":"100 nF","pins":[{"name":"a","x":5,"y":12,"net":"HB_ADC"},{"name":"b","x":5,"y":14,"net":"GND"}],"code":"104","step":5},{"ref":"C4","kind":"ecap","value":"10 µF","pins":[{"name":"+","x":20,"y":5,"net":"REF_DIV"},{"name":"-","x":20,"y":3,"net":"GND"}],"step":4},{"ref":"C5","kind":"cap","value":"100 nF","pins":[{"name":"a","x":12,"y":4,"net":"+3V3"},{"name":"b","x":12,"y":2,"net":"GND"}],"code":"104","step":4},{"ref":"C10","kind":"ecap","value":"10 µF","pins":[{"name":"+","x":14,"y":3,"net":"+3V3"},{"name":"-","x":14,"y":2,"net":"GND"}],"step":4},{"ref":"C11a","kind":"cap","value":"470 nF","pins":[{"name":"a","x":13,"y":22,"net":"HP_IN"},{"name":"b","x":15,"y":22,"net":"SENSE"}],"code":"474","step":6},{"ref":"C11b","kind":"cap","value":"470 nF","pins":[{"name":"a","x":13,"y":24,"net":"HP_IN"},{"name":"b","x":15,"y":24,"net":"SENSE"}],"code":"474","step":6},{"ref":"RV3","kind":"trim","value":"50 kΩ","pins":[{"name":"1","x":18,"y":23,"net":"SENSE"},{"name":"2","x":18,"y":24,"net":"GND"},{"name":"3","x":18,"y":25,"net":"GND"}],"code":"503","step":6}],"pads":[{"id":"PB0","x":5,"y":10,"net":"HB_ADC","group":"FC","label":"PB0 (heartbeat → ADC)","step":8},{"id":"FC+5V","x":23,"y":8,"net":"+5V","group":"FC","label":"+5V","step":8},{"id":"FC3V3","x":24,"y":8,"net":"+3V3","group":"FC","label":"+3V3","step":8},{"id":"FCGND","x":25,"y":8,"net":"GND","group":"FC","label":"GND","step":8},{"id":"FCSCL","x":26,"y":8,"net":"SCL","group":"FC","label":"PD12 · SCL4","step":8},{"id":"FCSDA","x":27,"y":8,"net":"SDA","group":"FC","label":"PD13 · SDA4","step":8},{"id":"SHTV","x":24,"y":10,"net":"+3V3","group":"SHT21","label":"VIN","step":8},{"id":"SHTG","x":25,"y":10,"net":"GND","group":"SHT21","label":"GND","step":8},{"id":"SHTC","x":26,"y":10,"net":"SCL","group":"SHT21","label":"SCL","step":8},{"id":"SHTD","x":27,"y":10,"net":"SDA","group":"SHT21","label":"SDA","step":8},{"id":"BMPV","x":24,"y":12,"net":"+3V3","group":"BMP280","label":"VCC","step":8},{"id":"BMPG","x":25,"y":12,"net":"GND","group":"BMP280","label":"GND","step":8},{"id":"BMPC","x":26,"y":12,"net":"SCL","group":"BMP280","label":"SCL","step":8},{"id":"BMPD","x":27,"y":12,"net":"SDA","group":"BMP280","label":"SDA","step":8},{"id":"MAXV","x":24,"y":14,"net":"+3V3","group":"MAX30100","label":"VIN","step":8},{"id":"MAXG","x":25,"y":14,"net":"GND","group":"MAX30100","label":"GND","step":8},{"id":"MAXC","x":26,"y":14,"net":"SCL","group":"MAX30100","label":"SCL","step":8},{"id":"MAXD","x":27,"y":14,"net":"SDA","group":"MAX30100","label":"SDA","step":8},{"id":"TCRS","x":22,"y":20,"net":"SENSE","group":"TCRT5000","label":"E · emitter (SENSE)","step":8},{"id":"TCRA","x":23,"y":20,"net":"LED_A","group":"TCRT5000","label":"A · LED anode","step":8},{"id":"TCRC","x":24,"y":20,"net":"+3V3","group":"TCRT5000","label":"C · collector","step":8},{"id":"TCRK","x":25,"y":20,"net":"GND","group":"TCRT5000","label":"K · LED cathode","step":8}],"traces":[{"net":"+3V3","pts":[[5,4],[24,4]],"step":3},{"net":"+3V3","pts":[[11,4],[11,13]],"step":4},{"net":"+3V3","pts":[[14,3],[14,4]],"step":4},{"net":"+3V3","pts":[[24,4],[24,20]],"step":3},{"net":"GND","pts":[[3,2],[20,2]],"step":3},{"net":"GND","pts":[[3,2],[3,27]],"step":3},{"net":"GND","pts":[[3,27],[25,27]],"step":3},{"net":"GND","pts":[[25,8],[25,27]],"step":3},{"net":"GND","pts":[[18,2],[18,3]],"step":4},{"net":"GND","pts":[[20,2],[20,3]],"step":4},{"net":"GND","pts":[[14,16],[14,15],[3,15]],"step":5},{"net":"GND","pts":[[5,14],[5,15]],"step":5},{"net":"GND","pts":[[18,24],[18,27]],"step":6},{"net":"REF_DIV","pts":[[14,13],[14,8],[20,8]],"step":4},{"net":"REF_DIV","pts":[[18,7],[18,8]],"step":4},{"net":"REF_DIV","pts":[[20,5],[20,8]],"step":4},{"net":"VREF","pts":[[12,13],[13,13]],"step":4},{"net":"VREF","pts":[[13,13],[13,14],[16,14],[16,20],[17,20]],"step":5},{"net":"FB","pts":[[12,16],[12,21]],"step":5},{"net":"OUT","pts":[[11,16],[7,16]],"step":5},{"net":"OUT","pts":[[8,16],[8,21]],"step":5},{"net":"HP_IN","pts":[[13,16],[13,24]],"step":6},{"net":"SENSE","pts":[[15,22],[15,24]],"step":6},{"net":"SENSE","pts":[[15,22],[22,22],[22,20]],"step":6},{"net":"SENSE","pts":[[18,22],[18,23]],"step":6},{"net":"HB_ADC","pts":[[5,12],[7,12]],"step":5},{"net":"HB_ADC","pts":[[5,10],[5,12]],"step":8},{"net":"+5V","pts":[[23,8],[23,12]],"step":7},{"net":"LED_A","pts":[[23,16],[23,20]],"step":7},{"net":"SCL","pts":[[26,8],[26,14]],"step":8},{"net":"SDA","pts":[[27,8],[27,14]],"step":8}]};
+const S = 20, OX = 46, OY = 46, N = 30;          // px per hole, board origin
+const NETS = {
+  '+3V3':   {c:'#e03131', name:'+3.3 V', d:'From the flight controller (+3V3_IS). Powers the MCP6002, the 1.65 V divider, the TCRT5000 collector and all three sensor modules.'},
+  '+5V':    {c:'#f08c00', name:'+5 V', d:'From the flight controller (+5V_IS). Only drives the IR LED, through R1.'},
+  'GND':    {c:'#5c677d', name:'Ground', d:'One ground for everything. On the copper side it is a frame: row 3, column 4, row 28 and column 26.'},
+  'LED_A':  {c:'#d6a200', name:'LED anode', d:'R1 (220 Ω) from +5 V feeds the TCRT5000 IR LED: (5 − 1.25 V) / 220 Ω ≈ 17 mA.'},
+  'SENSE':  {c:'#2b8a3e', name:'Sensor signal', d:'TCRT5000 phototransistor emitter. RV3 turns its current into a voltage; tune it to about 1 V DC.'},
+  'HP_IN':  {c:'#1971c2', name:'High-pass node', d:'After C11 (two 474 in parallel = 0.94 µF) and R15 (1 MΩ). Sits at 1.65 V with the heartbeat riding on top. Corner ≈ 0.17 Hz.'},
+  'VREF':   {c:'#7048e8', name:'1.65 V reference', d:'Output of buffer U2B (pins 6 + 7 tied). Centre line for the whole amplifier.'},
+  'REF_DIV':{c:'#ae3ec9', name:'Divider', d:'R6 / R7 split 3.3 V in half; C4 smooths it. Goes into U2 pin 5.'},
+  'FB':     {c:'#0c8599', name:'Feedback', d:'Inverting input of U2A. Gain = 1 + R17/R16 = 1 + 100k/1k = 101. C2 across R17 sets the 3.4 Hz low-pass.'},
+  'OUT':    {c:'#e8590c', name:'Amp output', d:'U2 pin 1. Goes through R3 (1 kΩ) to the ADC filter.'},
+  'HB_ADC': {c:'#c2255c', name:'To PB0', d:'R3 + C3 filter, then a wire to the flight controller PB0 (ADC). This is the heartbeat signal.'},
+  'SCL':    {c:'#e6a700', name:'I²C SCL', d:'PD12 on the FC. Column 27 bus to SHT21, BMP280 and MAX30100.'},
+  'SDA':    {c:'#1c7ed6', name:'I²C SDA', d:'PD13 on the FC. Column 28 bus to the three modules.'}
+};
+const BANDS = {'220 Ω':['red','red','brown','gold'],'1 kΩ':['brown','black','red','gold'],'10 kΩ':['brown','black','orange','gold'],'100 kΩ':['brown','black','yellow','gold'],'1 MΩ':['brown','black','green','gold']};
+const BAND5 = {'220 Ω':['red','red','black','black','brown'],'1 kΩ':['brown','black','black','brown','brown'],'10 kΩ':['brown','black','black','red','brown'],'100 kΩ':['brown','black','black','orange','brown'],'1 MΩ':['brown','black','black','yellow','brown']};
+const COL = {black:'#1b1b1b',brown:'#7a4a21',red:'#d42a2a',orange:'#f07c12',yellow:'#f2cf1d',green:'#2f9e44',blue:'#1d5fd1',violet:'#7b3fc4',grey:'#8b8b8b',white:'#f4f4f4',gold:'#c9a338',silver:'#c0c0c0'};
+const WIRE = { // suggested insulation colours per pad
+  'FC+5V':'#f08c00','FC3V3':'#e03131','FCGND':'#222','FCSCL':'#f2c200','FCSDA':'#1c7ed6','PB0':'#8e44ad',
+  'SHTV':'#e03131','SHTG':'#222','SHTC':'#f2c200','SHTD':'#1c7ed6','BMPV':'#e03131','BMPG':'#222','BMPC':'#f2c200','BMPD':'#1c7ed6',
+  'MAXV':'#e03131','MAXG':'#222','MAXC':'#f2c200','MAXD':'#1c7ed6','TCRC':'#e03131','TCRK':'#222','TCRA':'#f2c200','TCRS':'#2f9e44'};
+const PARTINFO = {
+  U2:'Dual op-amp. A = ×101 amplifier, B = 1.65 V buffer. Notch points LEFT (towards column 1).',
+  R1:'IR LED current limit, ≈17 mA.', R3:'ADC series resistor; with C3 forms a 1.6 kHz filter that protects PB0.',
+  R6:'Divider top: 3.3 V → 1.65 V.', R7:'Divider bottom.', R15:'Re-centres the high-passed signal on 1.65 V.',
+  R16:'Gain resistor to VREF.', R17:'Feedback resistor (gain 101).', C2:'Low-pass across R17, 3.4 Hz ≈ 200 bpm. Its holes are 10 mm apart: bend the legs out.',
+  C3:'ADC filter cap.', C4:'Smooths the divider. Electrolytic: stripe (−) towards row 4.', C5:'Op-amp supply decoupling, straddles the +3.3 V and GND rails.',
+  C10:'Bulk cap on +3.3 V. Electrolytic: stripe (−) on the GND rail, row 3.', C11a:'High-pass cap, half 1 of 2 (474 + 474 = 0.94 µF).',
+  C11b:'High-pass cap, half 2 of 2, in parallel with C11a.', RV3:'50 k trimmer used as a rheostat: middle pin + one end to GND. Turn until SENSE ≈ 1 V.'
+};
+// Rev 24 Oct: a new step 1 (sort + measure parts) was added in front, so every board item moves up one step.
+[...L.parts, ...L.pads, ...L.traces].forEach(o=>o.step++);
+const WSTEP = 9, TSTEP = 10;   // wiring step, final test step
+const STEPS = [
+  {t:'Sort and measure your parts', d:`<p>Before any soldering, pull out exactly what this board uses and measure each part. A wrong resistor is easy to swap now and painful later.</p><ul><li><b>Resistors</b> from the kit: 220 Ω ×1, 1 kΩ ×2, 10 kΩ ×2, 100 kΩ ×1, 1 MΩ ×1</li><li><b>474</b> ×3 (all you have), <b>104</b> ×2 (the smaller ones)</li><li><b>10 µF 50 V</b> green electrolytic ×2</li><li><b>503</b> 3296 trimmer ×1 (RV3)</li><li><b>MCP6002</b> ×1 · <b>GY-21</b> · <b>BMP280</b> · <b>GY-MAX30100</b></li><li><b>TCRT5000</b> from one HW-511</li></ul><p><b>Desolder the TCRT5000:</b> before heating, follow the module's tracks to name the four legs (TCRT5000 card at the bottom of the page) and mark the A leg with a marker. Add fresh solder to each joint, then wick or pump it off and wiggle each leg free. Keep the legs long.</p><p>Leave in the box: IRLZ44N, LM393P, 150 Ω 5 W, XT30, 1000 µF. They were for the heater, which rev C dropped.</p>`,
+   req:[
+    {h:'Resistors, out of circuit (hold the body, not both leads)'},
+    {m:'ohm', w:'220 Ω (red-red-brown)', e:'209–231 Ω'},
+    {m:'ohm', w:'1 kΩ ×2 (brown-black-red)', e:'950–1050 Ω each'},
+    {m:'ohm', w:'10 kΩ ×2 (brown-black-orange)', e:'9.5–10.5 kΩ each'},
+    {m:'ohm', w:'100 kΩ (brown-black-yellow)', e:'95–105 kΩ'},
+    {m:'ohm', w:'1 MΩ (brown-black-green), 2 MΩ range', e:'0.95–1.05 MΩ', f:`reads 500 kΩ or less: your fingers are on both leads and your body is in parallel.`},
+    {h:'Trimmer RV3 (503)'},
+    {m:'ohm', w:'outer pin 1 ↔ outer pin 3', e:'45–55 kΩ'},
+    {m:'ohm', w:'pin 1 ↔ middle pin 2 while you turn the screw', e:'moves smoothly from ≈0 to ≈50 kΩ. Leave it at ≈20 kΩ, the starting point for step 7.', f:'jumps or shows OL in spots: use your spare 503.'},
+    {h:'Capacitors (only if your meter has an F range)'},
+    {m:'cap', w:'each 474', e:'0.38–0.56 µF (470 nF ±20 %)'},
+    {m:'cap', w:'the two 104s you picked', e:'80–120 nF'},
+    {m:'cap', w:'each 10 µF electrolytic (short its legs first to discharge)', e:'8–12 µF'},
+    {m:'eye', w:'10 µF electrolytic', e:'the stripe with "−" is the minus leg, the shorter one'},
+    {h:'TCRT5000 after desoldering'},
+    {m:'diode', w:'red on A, black on K (blue LED half)', e:'0.9–1.3 V', f:'OL both ways: legs misnamed or LED cooked. Try the second HW-511.'},
+    {m:'diode', w:'black on A, red on K', e:'OL (it blocks backwards)'},
+    {m:'ohm', w:'red on C, black on E (black detector half), first covered by your finger, then lit by a phone torch', e:'very high or OL in the dark, drops into the kΩ range in light', f:'no change: C and E swapped, or the detector is dead. Use the other module.'}
+   ]},
+  {t:'Cut and orient the board', d:`<p>Cut the green perfboard to 30 × 30 holes (76.2 mm). Mark the top-left corner hole <span class="k">c1·r1</span> with a marker on BOTH sides. Every coordinate on this page counts from that corner.</p><p>Copper pads are on the bottom. Parts go in from the top.</p>`,
+   req:[
+    {m:'beep', w:'any two neighbouring copper pads', e:'no beep: every hole is its own pad', f:'beeps: this is stripboard, not pad-per-hole. The layout needs pad-per-hole board.'},
+    {m:'eye', w:'cut edges', e:'no copper burr or flake touching the edge holes; file it smooth'},
+    {m:'eye', w:'corner c1·r1', e:'marked on both sides'}
+   ]},
+  {t:'IC socket (or MCP6002)', d:`<p>DIP-8 socket at <span class="k">c12–c15, r14 + r17</span>, notch pointing LEFT. Solder two opposite corners first, check it sits flat, then the rest. No socket? Solder the chip in at the very end (step 10) with a quick, cool iron, and do these checks on the bare pads instead.</p>`,
+   req:[
+    {m:'beep', w:'each socket contact (probe into it from the top) ↔ its own pad underneath', e:'beep on all 8', f:`a pin that doesn't beep has a cold joint. Reheat it.`},
+    {m:'beep', w:'neighbouring pins 1↔2, 2↔3, 3↔4, 5↔6, 6↔7, 7↔8', e:'no beep on any pair', f:'beep = solder bridge. Wick it off.'},
+    {m:'eye', w:'socket', e:'flat on the board, notch toward column 1'}
+   ]},
+  {t:'Power rails on the copper side', d:`<p>Use bare tinned wire (resistor offcuts or stripped solid wire), soldered flat along the pads.</p>`,
+   req:[
+    {m:'beep', w:'+3.3 V bus end to end: c6·r5 ↔ c25·r21', e:'beep', nets:['+3V3']},
+    {m:'beep', w:'GND frame: c4·r3 ↔ c26·r9, and c21·r3 ↔ c26·r28', e:'beep on both', nets:['GND']},
+    {m:'beep', w:'FC +3V3 pad c25·r9 ↔ FC GND pad c26·r9', e:'no beep, Ω shows OL', f:'the rails are shorted. Nothing else is fitted yet, so it is a solder bridge. Fix it before going on.', nets:['+3V3','GND']},
+    {m:'beep', w:'slide the probes down column 25 (+3.3 V) against column 26 (GND), rows 9–21', e:'no beep anywhere', f:'these two bare wires run side by side, one hole apart. This is the most likely bridge on the whole board.', nets:['+3V3','GND']}
+   ]},
+  {t:'Supply + 1.65 V reference', d:`<p>Fit C10, C5, R6, R7, C4 and the short links. Both electrolytic stripes face the GND rail on row 3. Pins 6 and 7 of the socket get bridged on the copper side.</p>`,
+   req:[
+    {h:'Power off'},
+    {m:'beep', w:'socket pin 8 (c12·r14) ↔ FC +3V3 pad (c25·r9)', e:'beep', nets:['+3V3']},
+    {m:'beep', w:'socket pin 6 ↔ pin 7', e:'beep (this bridge makes the 1.65 V buffer)', nets:['VREF']},
+    {m:'ohm', w:'socket pin 5 ↔ pin 6', e:'OL, no beep', f:'bridged under the socket on row 14: the divider is shorted to the buffer output.', nets:['REF_DIV','VREF']},
+    {m:'ohm', w:'FC +3V3 pad ↔ FC GND pad', e:'climbs for a few seconds while the 10 µF caps charge, then settles at ≈20 kΩ (R6 + R7)', f:'stays near 0: short, or an electrolytic is in backwards. Settles at 10 kΩ: R6 or R7 is shorted.', nets:['+3V3','GND']},
+    {m:'ohm', w:'socket pin 5 ↔ GND', e:'settles at ≈10 kΩ (R7)', nets:['REF_DIV','GND']},
+    {h:'Powered: 3.3 V on the FC +3V3 pad, GND on the FC GND pad (FC or an Arduino 3.3 V pin)'},
+    {m:'v', w:'socket pin 8 → GND', e:'3.2–3.4 V', nets:['+3V3']},
+    {m:'v', w:'socket pin 5 → GND', e:'1.60–1.70 V, half of pin 8', f:'0 V: R6 open. 3.3 V: R7 open. Measure both in place.', nets:['REF_DIV']},
+    {m:'eye', w:'touch C4 and C10 after a minute', e:'cold', f:'warm = in backwards. Power off and replace it.'}
+   ]},
+  {t:'Amplifier (gain 101, low-pass)', d:`<p>R16 and R15 bodies sit over bare traces on the other side. That is fine because the body is on top. Just don't let a lead touch the trace.</p><p>Rows 15–17 are the tightest spot: the VREF wire (row 15) and the GND wire (row 16) both run between the socket's two pin rows.</p>`,
+   req:[
+    {h:'Power off, chip out'},
+    {m:'beep', w:'socket pin 4 (c15·r17) ↔ FC GND pad', e:'beep', nets:['GND']},
+    {m:'ohm', w:'socket pin 2 ↔ pin 1', e:'≈100 kΩ (95–105 k); climbs first while C2 charges', f:'≈0: columns 12 and 13 bridged. ≈1 kΩ: R16 and R17 swapped.', nets:['FB','OUT']},
+    {m:'ohm', w:'socket pin 2 ↔ pin 7', e:'≈1 kΩ (R16)', nets:['FB','VREF']},
+    {m:'ohm', w:'socket pin 1 ↔ R3 top leg (c8·r13)', e:'≈1 kΩ (R3)', nets:['OUT','HB_ADC']},
+    {m:'ohm', w:'R3 top leg (c8·r13) ↔ GND', e:'OL (only C3 there)', f:'≈0: C3 shorted, or a blob onto the GND wire on row 16.', nets:['HB_ADC','GND']},
+    {m:'beep', w:'pins 1, 2 and 3 ↔ GND', e:'no beep on any', f:'the GND wire on row 16 runs right beside pin row 17. Look there.', nets:['GND','OUT','FB','HP_IN']},
+    {m:'ohm', w:'socket pin 5 ↔ pin 7', e:'OL', f:'the VREF wire on row 15 passes right under pin 5. A blob there joins them.', nets:['REF_DIV','VREF']}
+   ]},
+  {t:'High-pass input + RV3', d:`<p>C11 is two 474 caps side by side, wired in parallel = 0.94 µF. These are your last two 474s: bend the legs gently.</p><p>Set RV3 to ≈20 kΩ (step 1) before soldering it.</p>`,
+   req:[
+    {m:'ohm', w:'socket pin 3 ↔ pin 7, 2 MΩ range, fingers off the tips', e:'0.95–1.05 MΩ (R15)', nets:['HP_IN','VREF']},
+    {m:'ohm', w:'socket pin 2 ↔ pin 3', e:'≈1 MΩ (through R16 + R15)', f:'≈0: columns 13 and 14 are bridged. They run side by side from row 17 down to row 22.', nets:['FB','HP_IN']},
+    {m:'ohm', w:'TCRT E pad (c23·r21) ↔ GND', e:'your RV3 setting, ≈20 kΩ; it moves when you turn the screw', f:'0: RV3 pin 1 landed on GND or is bridged. OL: an RV3 joint is open.', nets:['SENSE','GND']},
+    {m:'ohm', w:'TCRT E pad (c23·r21) ↔ socket pin 3', e:'OL after a few seconds (only the two 474s between them)', f:'low reading: a 474 is cracked, or a blob joins columns 14 and 16 around rows 23–25.', nets:['SENSE','HP_IN']}
+   ]},
+  {t:'IR LED drive', d:`<p>R1 sits between the +5 V column and the LED anode column, next to the +3.3 V bus. Keep its leads short and straight.</p>`,
+   req:[
+    {m:'ohm', w:'FC +5V pad (c24·r9) ↔ TCRT A pad (c24·r21)', e:'209–231 Ω (R1)', nets:['+5V','LED_A']},
+    {m:'beep', w:'FC +5V pad (c24·r9) ↔ FC +3V3 pad (c25·r9)', e:'NO beep, OL. The most important check on the board.', f:`5 V on the 3.3 V rail reaches the STM32 and every sensor and can kill them. Don't power anything until it's fixed.`, nets:['+5V','+3V3']},
+    {m:'beep', w:'slide along column 24 (rows 9–13 and 17–21) against column 25', e:'no beep anywhere', nets:['+5V','LED_A','+3V3']},
+    {m:'ohm', w:'FC +5V pad ↔ GND', e:'OL', nets:['+5V','GND']}
+   ]},
+  {t:'Wires: flight controller, sensor, modules', d:`<p>All off-board wires go in from the top. Do the TCRT5000 cable first and run its two checks, then the modules, then the FC. Twist the four TCRT5000 wires together. Hot-glue every bundle to the board 5 mm from its pad so the landing can't snap them.</p>`,
+   req:[
+    {h:'TCRT5000 cable only (FC not plugged in)'},
+    {m:'diode', w:'red on FC +5V pad, black on FC GND pad', e:'≈1.1–1.6 V (R1 + the IR LED, through the cable). Swap the probes: OL.', f:'OL both ways: A and K swapped in the cable, or a broken wire.', nets:['+5V','LED_A','GND']},
+    {m:'ohm', w:'FC +3V3 pad ↔ TCRT E pad, sensor covered, then lit by a phone torch', e:'≈40 kΩ in the dark (through the divider and RV3), clearly lower in light', f:'no change: C and E swapped in the cable.', nets:['+3V3','SENSE']},
+    {m:'ohm', w:'TCRT E pad ↔ GND', e:'still your RV3 setting (≈20 kΩ)', f:'≈0: the E wire touches K or GND in the cable or at the sensor.', nets:['SENSE','GND']},
+    {h:'Modules and FC'},
+    {m:'beep', w:'every wire: module or FC pin ↔ its board pad, wiggling the wire while you probe', e:'steady beep on all 22', f:'flickers: broken strand or cold joint. Redo it now, because the landing will finish it off.'},
+    {m:'beep', w:'SCL (c27·r9) ↔ SDA (c28·r9), SCL ↔ GND, SDA ↔ +3V3', e:'no beep on any', nets:['SCL','SDA','GND']},
+    {m:'beep', w:'BMP280 SDO ↔ BMP280 GND, on the module', e:'beep (address 0x76)'},
+    {m:'beep', w:'FC PB0 pin ↔ R3 top leg (c8·r13)', e:'beep', nets:['HB_ADC']},
+    {m:'ohm', w:'FC +3V3 pad ↔ FC GND pad', e:'still no short. With the modules on it, it settles somewhere between a few kΩ and 20 kΩ.', f:'under 100 Ω: a module is wired backwards, or VIN touches GND.', nets:['+3V3','GND']}
+   ]},
+  {t:'Chip in, power up, test', d:`<ol><li>Insert MCP6002, notch LEFT, dot at <span class="k">c12·r17</span>.</li><li>Power from the FC. Pin 7 (VREF) ≈ 1.65 V.</li><li>Turn RV3 until SENSE (TCRT pad <span class="k">c23·r21</span>) ≈ 1 V DC with the sensor 1–2 mm from a surface.</li><li>Press a fingertip on the TCRT5000: a ≈1 Hz wave at PB0 (serial plotter or <span class="k">HB_Tune</span>).</li><li>I²C scan: 0x40 SHT21, 0x76 BMP280, 0x57 MAX30100.</li></ol>`, test:true,
+   req:[
+    {h:'Before power'},
+    {m:'beep', w:'FC +5V ↔ FC +3V3, and FC +3V3 ↔ GND', e:'no beep on either. Repeat it, it takes 10 seconds.', nets:['+5V','+3V3','GND']},
+    {m:'eye', w:'MCP6002', e:'notch LEFT, dot at c12·r17, all 8 legs inside the socket (none folded under)'},
+    {h:'Powered from the FC'},
+    {m:'v', w:'FC +5V pad → GND', e:'4.75–5.25 V', nets:['+5V']},
+    {m:'v', w:'socket pin 8 → GND', e:'3.2–3.4 V', nets:['+3V3']},
+    {m:'v', w:'pin 5 and pin 7 → GND', e:'both 1.60–1.70 V, within 0.02 V of each other', f:'pin 7 near 0 or 3.3 V: chip in backwards (it will be hot) or the pin 6–7 bridge is missing.', nets:['REF_DIV','VREF']},
+    {m:'v', w:'TCRT A pad (c24·r21) → GND', e:'1.1–1.4 V. LED current = (5 V − this) ÷ 220 Ω ≈ 17 mA.', f:'≈5 V: LED open or backwards. ≈0: LED shorted.', nets:['LED_A']},
+    {m:'eye', w:'TCRT5000 through a phone camera (the front camera works best)', e:'the LED glows faint purple'},
+    {m:'v', w:'TCRT E pad (SENSE) → GND, sensor 1–2 mm from a surface', e:'turn RV3 until 0.8–1.2 V, aiming for 1.0 V', f:'stuck at 0: C/E swapped, or no light reaches it. Stuck at ≈3.2 V: turn RV3 toward less resistance.', nets:['SENSE']},
+    {m:'v', w:'socket pin 1 (OUT) and FC PB0 → GND, sensor still', e:'1.2–2.1 V, the same on both', f:'pinned at 0 or 3.3 V: the amp is saturated. Wait 10 s for C11 to settle, then recheck R16 and R17.', nets:['OUT','HB_ADC']},
+    {m:'v', w:'socket pin 3 → GND', e:`≈1.5 V, not 1.65. The meter's own 10 MΩ input pulls down the 1 MΩ R15. Pin 1 jumps while the probe is on: that's normal.`, nets:['HP_IN']},
+    {m:'v', w:'SCL and SDA → GND, bus idle', e:'3.0–3.3 V', f:'1.8–2.6 V: the MAX30100 board pulls the bus toward 1.8 V. Remove its three 4.7 k pull-ups. Its pins tolerate 3.3 V, and the GY-21 and BMP280 keep the bus pulled up.', nets:['SCL','SDA']},
+    {m:'eye', w:'fingertip on the TCRT5000, PB0 on the serial plotter / HB_Tune', e:'a clean ≈1 Hz wave. On the meter, PB0 wobbles once per beat.'},
+    {m:'eye', w:'I²C scan', e:'0x40 SHT21 · 0x57 MAX30100 · 0x76 BMP280'}
+   ]}
+];
+const MODE = {beep:['BEEP','Continuity (buzzer)'], ohm:['Ω','Resistance'], v:['V⎓','DC volts'], diode:['DIODE','Diode test'], cap:['F','Capacitance'], eye:['LOOK','Look / feel, no meter']};
+let tab = {};
+let reqDone = new Set(); try{ reqDone = new Set(JSON.parse(localStorage.getItem('sp_req')||'[]')); }catch(e){}
+const reqItems = i => (STEPS[i].req||[]).filter(r=>!r.h);
+const reqCount = i => { const R=reqItems(i); return [R.filter((r,k)=>reqDone.has(`${i+1}.${k}`)).length, R.length]; };
+// ---------- helpers
+const $ = s=>document.querySelector(s);
+let view='top', sel=null, curStep=null, showX=true, showOff=true;
+let done = new Set(); try{ const v2 = localStorage.getItem('sp_done_v2'); done = v2!==null ? new Set(JSON.parse(v2)) : new Set(JSON.parse(localStorage.getItem('sp_done')||'[]').map(n=>n+1)); }catch(e){}
+const hc = (x,y)=>[OX + (view==='bot' ? (N-1-x) : x)*S, OY + y*S];
+const lab = (x,y)=>`c${x+1}·r${y+1}`;
+const esc = s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const pinsOf = {}; // net -> [{label}]
+L.parts.forEach(p=>p.pins.forEach(q=>(pinsOf[q.net]=pinsOf[q.net]||[]).push(`${p.ref}${p.pins.length>2||p.kind==='ecap'?'.'+q.name:''}`)));
+L.pads.forEach(p=>(pinsOf[p.net]=pinsOf[p.net]||[]).push(`${p.group} ${p.label}`));
+function segText(t){ const a=t.pts[0], b=t.pts[t.pts.length-1]; return t.pts.length>2 ? `${lab(...a)} → ${t.pts.slice(1,-1).map(p=>lab(...p)).join(' → ')} → ${lab(...b)}` : `${lab(...a)} → ${lab(...b)}`; }
+function bandsSvg(x1,y1,x2,y2,v,w){ // resistor between holes
+  const cx=(x1+x2)/2, cy=(y1+y2)/2, len=Math.hypot(x2-x1,y2-y1), ang=Math.atan2(y2-y1,x2-x1)*180/Math.PI;
+  const bl=48, bw=w||15, b=BANDS[v]||[];
+  let s=`<g transform="translate(${cx},${cy}) rotate(${ang})">`;
+  s+=`<rect x="${-bl/2}" y="${-bw/2}" width="${bl}" height="${bw}" rx="${bw/2}" fill="#d9c49a" stroke="#8a744a" stroke-width="1" class="outline"/>`;
+  s+=`<rect x="${-bl/2+5}" y="${-bw/2+2}" width="${bl-10}" height="3" rx="1.5" fill="#fff" opacity=".35"/>`;
+  const xs=[-15,-8,-1,13]; b.forEach((c,i)=>s+=`<rect x="${xs[i]}" y="${-bw/2+.5}" width="4.2" height="${bw-1}" fill="${COL[c]}"/>`);
+  return s+`</g>`;
+}
+function leads(pins,color){ return pins.map(([x,y])=>`<circle cx="${x}" cy="${y}" r="3.2" fill="${color||'#b9bec3'}" stroke="#7d8389" stroke-width=".8"/>`).join(''); }
+function lineLead(a,b){ return `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#aeb3b8" stroke-width="2.2" stroke-linecap="round"/>`; }
+// ---------- part drawings (top side)
+function drawPart(p){
+  const P=p.pins.map(q=>hc(q.x,q.y));
+  let g='';
+  if(p.kind==='res'){
+    g+=lineLead(P[0],P[1])+leads(P)+bandsSvg(P[0][0],P[0][1],P[1][0],P[1][1],p.value);
+  } else if(p.kind==='cap'){
+    const cx=(P[0][0]+P[1][0])/2, cy=(P[0][1]+P[1][1])/2, ang=Math.atan2(P[1][1]-P[0][1],P[1][0]-P[0][0])*180/Math.PI;
+    const wide = Math.hypot(P[1][0]-P[0][0],P[1][1]-P[0][1])>50;
+    g+=lineLead(P[0],P[1])+leads(P);
+    g+=`<g transform="translate(${cx},${cy}) rotate(${ang})"><rect x="-12" y="-9" width="24" height="18" rx="7" fill="#f3c623" stroke="#a7820b" class="outline"/><text x="0" y="3.4" text-anchor="middle" font-size="9" font-weight="600" fill="#3d3000" transform="rotate(${-ang})">${p.code}</text></g>`;
+  } else if(p.kind==='ecap'){
+    const pp=P[0], mm=P[1], cx=(pp[0]+mm[0])/2, cy=(pp[1]+mm[1])/2;
+    const ang=Math.atan2(mm[1]-pp[1],mm[0]-pp[0]); // toward minus
+    g+=leads(P);
+    g+=`<circle cx="${cx}" cy="${cy}" r="19" fill="#1d2a4a" stroke="#0c1326" stroke-width="1.2" class="outline"/>`;
+    // minus stripe arc on the minus side
+    const a0=ang-0.9, a1=ang+0.9, r=19;
+    g+=`<path d="M${cx+Math.cos(a0)*r},${cy+Math.sin(a0)*r} A${r},${r} 0 0 1 ${cx+Math.cos(a1)*r},${cy+Math.sin(a1)*r} L${cx+Math.cos(a1)*11},${cy+Math.sin(a1)*11} A11,11 0 0 0 ${cx+Math.cos(a0)*11},${cy+Math.sin(a0)*11} Z" fill="#a9b6d6"/>`;
+    g+=`<text x="${cx+Math.cos(ang)*15}" y="${cy+Math.sin(ang)*15+3}" text-anchor="middle" font-size="10" font-weight="700" fill="#1d2a4a">−</text>`;
+    g+=`<path d="M${cx-6},${cy} h12 M${cx},${cy-6} v12" stroke="#4a5a85" stroke-width="1.2"/>`;
+    g+=`<text x="${cx-Math.cos(ang)*14}" y="${cy-Math.sin(ang)*14+3}" text-anchor="middle" font-size="9" font-weight="700" fill="#e9eefb">+</text>`;
+  } else if(p.kind==='dip8'){
+    const xs=P.map(a=>a[0]), ys=P.map(a=>a[1]); const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys);
+    g+=`<rect x="${x0-12}" y="${y0-8}" width="${x1-x0+24}" height="${y1-y0+16}" rx="2" fill="#2b2b2b" stroke="#111" class="outline"/>`;
+    P.forEach(a=>g+=`<rect x="${a[0]-4}" y="${a[1]-4}" width="8" height="8" fill="#9aa0a6" stroke="#5f656b" stroke-width=".7"/>`);
+    g+=`<rect x="${x0-7}" y="${y0+5}" width="${x1-x0+14}" height="${y1-y0-10}" rx="1.5" fill="#1a1a1a"/>`;
+    const notchX = view==='top' ? x0-7 : x1+7; const dotX = view==='top'? x0+3 : x1-3;
+    g+=`<path d="M${notchX},${(y0+y1)/2-6} a6,6 0 0 ${view==='top'?1:0} 0,12" fill="#3a3a3a"/>`;
+    g+=`<circle cx="${dotX}" cy="${y1-14}" r="2.3" fill="#555"/>`;
+    g+=`<text x="${(x0+x1)/2+4}" y="${(y0+y1)/2-1}" text-anchor="middle" font-size="8.5" fill="#d7d7d7" font-weight="600">MCP6002</text><text x="${(x0+x1)/2+4}" y="${(y0+y1)/2+9}" text-anchor="middle" font-size="6.5" fill="#9a9a9a">I/P</text>`;
+    p.pins.forEach((q,i)=>{const a=P[i]; const up=q.y===13; g+=`<text x="${a[0]}" y="${a[1]+(up?-11:17)}" text-anchor="middle" font-size="7.5" fill="var(--ink)" font-weight="600">${q.name}</text>`;});
+  } else if(p.kind==='trim'){
+    const ys=P.map(a=>a[1]); const cx=P[1][0], y0=Math.min(...ys), y1=Math.max(...ys);
+    g+=leads(P);
+    g+=`<rect x="${cx-19}" y="${y0-17}" width="38" height="${y1-y0+34}" rx="3" fill="#2257b8" stroke="#123a85" class="outline"/>`;
+    g+=`<circle cx="${cx}" cy="${y0-8}" r="6" fill="#d2b15a" stroke="#8c6e22"/><path d="M${cx-4},${y0-8} h8" stroke="#6b5216" stroke-width="1.6"/>`;
+    g+=`<text x="${cx}" y="${y0+16}" text-anchor="middle" font-size="9" font-weight="600" fill="#eaf0ff">${p.code}</text><text x="${cx}" y="${y0+27}" text-anchor="middle" font-size="7" fill="#c6d4f5">3296W</text>`;
+  }
+  // ref label
+  const xs=P.map(a=>a[0]), ys=P.map(a=>a[1]);
+  let lx=(Math.min(...xs)+Math.max(...xs))/2, ly=(Math.min(...ys)+Math.max(...ys))/2;
+  const vert = Math.max(...ys)-Math.min(...ys) > Math.max(...xs)-Math.min(...xs);
+  let tx, ty, anchor='middle';
+  if(p.kind==='dip8'){ tx=lx; ty=Math.min(...ys)-22; }
+  else if(p.kind==='ecap'){ tx=lx+(view==='top'?24:-24); ty=ly+3; anchor=view==='top'?'start':'end'; }
+  else if(p.kind==='trim'){ tx=lx+(view==='top'?24:-24); ty=ly+3; anchor=view==='top'?'start':'end'; }
+  else if(vert){ tx=lx+(view==='top'?12:-12); ty=ly+3; anchor=view==='top'?'start':'end'; }
+  else { tx=lx; ty=ly-11; }
+  g+=`<text x="${tx}" y="${ty}" text-anchor="${anchor}" class="lbl" font-weight="600" paint-order="stroke" stroke="var(--board)" stroke-width="2.6" fill="#ffffff">${p.ref}</text>`;
+  return `<g class="part dimmable" data-ref="${p.ref}" data-step="${p.step}" data-nets="${p.pins.map(q=>q.net).join(' ')}" tabindex="0">${g}</g>`;
+}
+function drawGhost(p){ // part outline seen from below
+  const P=p.pins.map(q=>hc(q.x,q.y)); const xs=P.map(a=>a[0]), ys=P.map(a=>a[1]);
+  const pad = p.kind==='dip8'?12:p.kind==='ecap'?19:p.kind==='trim'?19:10;
+  let g=`<rect x="${Math.min(...xs)-pad}" y="${Math.min(...ys)-pad}" width="${Math.max(...xs)-Math.min(...xs)+2*pad}" height="${Math.max(...ys)-Math.min(...ys)+2*pad}" rx="6" fill="none" stroke="#e9f2ea" stroke-opacity=".55" stroke-dasharray="3 3"/>`;
+  P.forEach((a,i)=>g+=`<circle cx="${a[0]}" cy="${a[1]}" r="2.4" fill="#8d949b"/>`);
+  if(p.kind==='ecap'){ const m=P[1]; g+=`<text x="${m[0]+10}" y="${m[1]+3}" class="lbl" fill="#fff" style="font-size:8px">−</text>`; const pl=P[0]; g+=`<text x="${pl[0]+9}" y="${pl[1]+3}" class="lbl" fill="#fff" style="font-size:8px">+</text>`; }
+  if(p.kind==='dip8') p.pins.forEach((q,i)=>{const a=P[i]; g+=`<text x="${a[0]}" y="${a[1]+(q.y===13?-9:15)}" text-anchor="middle" font-size="7.5" fill="#fff" font-weight="600">${q.name}</text>`;});
+  const tx=(Math.min(...xs)+Math.max(...xs))/2, ty=Math.min(...ys)-pad-3;
+  g+=`<text x="${tx}" y="${ty}" text-anchor="middle" class="lbl" fill="#fff" font-weight="600" paint-order="stroke" stroke="var(--board)" stroke-width="2.4">${p.ref}</text>`;
+  return `<g class="part dimmable" data-ref="${p.ref}" data-step="${p.step}" data-nets="${p.pins.map(q=>q.net).join(' ')}" tabindex="0">${g}</g>`;
+}
+// ---------- off-board objects (top view only)
+const OFF = (()=>{ const X=OX+N*S+70; const o={
+  FC:{x:X, y:40, w:170, title:'FC · IntroBus_L', color:'#1e3a2c', pins:[['FC+5V','+5V_IS'],['FC3V3','+3V3_IS'],['FCGND','GND'],['FCSCL','PD12 · SCL4'],['FCSDA','PD13 · SDA4'],['PB0','PB0 · ADC']]},
+  SHT21:{x:X, y:236, w:150, title:'GY-21 · SHT21', color:'#2d4fa8', pins:[['SHTV','VIN'],['SHTG','GND'],['SHTC','SCL'],['SHTD','SDA']], note:'in the snail box air'},
+  BMP280:{x:X, y:356, w:150, title:'BMP280', color:'#6a2c91', pins:[['BMPV','VCC'],['BMPG','GND'],['BMPC','SCL'],['BMPD','SDA'],[null,'CSB'],[null,'SDO → GND']], note:'SDO to its own GND pin'},
+  MAX30100:{x:X, y:506, w:150, title:'GY-MAX30100', color:'#6a2c91', pins:[['MAXV','VIN'],['MAXC','SCL'],['MAXD','SDA'],[null,'INT'],[null,'IRD'],[null,'RD'],['MAXG','GND']], note:'backup pulse sensor'},
+  TCRT:{x:X, y:690, w:150, title:'TCRT5000 on the shell', color:'#111', pins:[['TCRC','C · collector'],['TCRK','K · cathode'],['TCRA','A · anode'],['TCRS','E · emitter']], note:'4-wire twisted cable'}
+}; let y=30; for(const k in o){ o[k].y=y; y+=36+o[k].pins.length*18+10+14; } return o; })();
+const OFF_H = (()=>{ let m=0; for(const k in OFF){ m=Math.max(m, OFF[k].y+36+OFF[k].pins.length*18+10); } return m+20; })();
+function offPinPos(id){ for(const k in OFF){ const o=OFF[k]; const i=o.pins.findIndex(p=>p[0]===id); if(i>=0) return [o.x+10, o.y+40+i*18]; } return null; }
+function drawOff(){
+  let s='';
+  for(const k in OFF){ const o=OFF[k]; const h=36+o.pins.length*18+10;
+    if(k==='TCRT'){ // realistic sensor body
+      s+=`<g class="dimmable" data-nets="+3V3 GND LED_A SENSE" data-step="${WSTEP}"><rect x="${o.x}" y="${o.y}" width="${o.w}" height="${h}" rx="8" fill="var(--panel)" stroke="var(--line)"/>`;
+      s+=`<text x="${o.x+10}" y="${o.y+18}" class="offlbl">${o.title}</text>`;
+      const bx=o.x+o.w-56, by=o.y+34; s+=`<rect x="${bx}" y="${by}" width="44" height="22" rx="3" fill="#161616"/><rect x="${bx+3}" y="${by+3}" width="16" height="16" rx="2" fill="#2e7bd6"/><circle cx="${bx+11}" cy="${by+11}" r="5" fill="#9cc6f2"/><rect x="${bx+25}" y="${by+3}" width="16" height="16" rx="2" fill="#050505"/><circle cx="${bx+33}" cy="${by+11}" r="5" fill="#2a2a2a"/>`;
+      s+=`<text x="${bx+11}" y="${by+33}" text-anchor="middle" style="font-size:8px" fill="var(--muted)">LED</text><text x="${bx+33}" y="${by+33}" text-anchor="middle" style="font-size:8px" fill="var(--muted)">photo</text>`;
+    } else {
+      s+=`<g class="dimmable" data-nets="${o.pins.filter(p=>p[0]).map(p=>L.pads.find(q=>q.id===p[0]).net).join(' ')}" data-step="${WSTEP}"><rect x="${o.x}" y="${o.y}" width="${o.w}" height="${h}" rx="5" fill="${o.color}" stroke="rgba(0,0,0,.4)"/>`;
+      s+=`<text x="${o.x+o.w-8}" y="${o.y+18}" text-anchor="end" class="offlbl" fill="#fff" style="fill:#fff">${o.title}</text>`;
+    }
+    o.pins.forEach((p,i)=>{ const py=o.y+40+i*18; const dark=k!=='TCRT';
+      s+=`<circle cx="${o.x+10}" cy="${py}" r="4.5" fill="#d4af37" stroke="#7a5f12"/><circle cx="${o.x+10}" cy="${py}" r="1.8" fill="#333"/>`;
+      s+=`<text x="${o.x+20}" y="${py+3.5}" class="offpin" style="fill:${dark?'#fff':'var(--ink)'};${p[0]?'':'opacity:.6'}">${p[1]}</text>`; });
+    if(o.note) s+=`<text x="${o.x+o.w-8}" y="${o.y+h-6}" text-anchor="end" style="font-size:8.5px;fill:${k==='TCRT'?'var(--muted)':'#e6e6ff'}">${o.note}</text>`;
+    s+=`</g>`;
+  }
+  return s;
+}
+function drawWires(){
+  let s='';
+  L.pads.forEach(pd=>{ const a=hc(pd.x,pd.y); const b=offPinPos(pd.id); if(!b) return;
+    const col=WIRE[pd.id]||'#888';
+    let d;
+    if(pd.id==='PB0'){ const top=8; d=`M${a[0]},${a[1]} C${a[0]},${top} ${a[0]+40},${top} ${a[0]+80},${top} L${b[0]-120},${top} C${b[0]-40},${top} ${b[0]-60},${b[1]} ${b[0]},${b[1]}`; }
+    else { const mx=(a[0]+b[0])/2; d=`M${a[0]},${a[1]} C${a[0]+30},${a[1]+ (pd.group==='TCRT5000'?40:-6)} ${mx},${b[1]} ${b[0]},${b[1]}`; }
+    s+=`<g class="dimmable wire" data-nets="${pd.net}" data-pad="${pd.id}" data-step="${WSTEP}"><path d="${d}" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="4.6" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${col}" stroke-width="3.2" stroke-linecap="round"/></g>`;
+  });
+  // BMP280 SDO to GND jumper on module
+  const o=OFF.BMP280; s+=`<path d="M${o.x+10},${o.y+40+5*18} C${o.x-12},${o.y+40+5*18} ${o.x-12},${o.y+40+18} ${o.x+10},${o.y+40+18}" fill="none" stroke="#222" stroke-width="2.2" class="dimmable" data-nets="GND" data-step="${WSTEP}"/>`;
+  return s;
+}
+// ---------- main render
+function render(){
+  const W = OX + N*S + (view==='top'&&showOff ? 330 : 40), H = view==='top'&&showOff ? Math.max(OY+N*S+40, OFF_H) : OY+N*S+40;
+  const svg=$('#svg'); svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  let s='';
+  const bx=OX-S*0.8, by=OY-S*0.8, bw=(N-1)*S+S*1.6;
+  // grid labels
+  for(let i=0;i<N;i++){ const [x]=hc(i,0); const [,y]=hc(0,i); const b=(i+1)%5===0||i===0;
+    s+=`<text x="${x}" y="${by-6}" text-anchor="middle" class="gl${b?' b':''}">${i+1}</text>`;
+    s+=`<text x="${(view==='top'?bx-5:bx-5)}" y="${y+2.5}" text-anchor="end" class="gl${b?' b':''}">${i+1}</text>`; }
+  s+=`<text x="${bx+bw}" y="${by+bw+14}" text-anchor="end" class="gl b" style="font-size:9px">${view==='top'?'TOP · parts side · columns →':'BOTTOM · solder side · flipped left↔right'}</text>`;
+  // board
+  s+=`<rect x="${bx}" y="${by}" width="${bw}" height="${bw}" rx="4" fill="var(--board)" stroke="var(--board-edge)" stroke-width="2"/>`;
+  // corner mark
+  const [cx0,cy0]=hc(0,0); s+=`<circle cx="${cx0}" cy="${cy0}" r="8" fill="none" stroke="#ffd43b" stroke-width="1.6"/><text x="${cx0+(view==='top'?10:-10)}" y="${cy0-8}" text-anchor="${view==='top'?'start':'end'}" style="font-size:7.5px;fill:#ffd43b">c1·r1</text>`;
+  // holes
+  let holes='';
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){ const [hx,hy]=hc(x,y);
+    holes += view==='top' ? `<circle cx="${hx}" cy="${hy}" r="3.3" fill="var(--hole)"/>` : `<circle cx="${hx}" cy="${hy}" r="7" fill="var(--copper)"/><circle cx="${hx}" cy="${hy}" r="2.6" fill="var(--hole)"/>`; }
+  s+=`<g>${holes}</g>`;
+  // traces
+  const trSvg = (t,i)=>{ const pts=t.pts.map(p=>hc(...p)); const d='M'+pts.map(p=>p.join(',')).join(' L');
+    const c = NETS[t.net].c;
+    if(view==='bot'){
+      const dots = [...new Set(cellsOf(t.pts).map(c=>c.join(',')))].map(k=>{const [x,y]=k.split(',').map(Number); const h=hc(x,y); return `<circle cx="${h[0]}" cy="${h[1]}" r="6.2" fill="var(--solder)"/>`;}).join('');
+      return `<g class="trace dimmable" data-nets="${t.net}" data-step="${t.step}" data-trace="${i}"><path d="${d}" fill="none" stroke="#8f959b" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>${dots}<path d="${d}" fill="none" stroke="var(--solder)" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="${d}" fill="none" stroke="${c}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/></g>`;
+    }
+    return `<g class="trace dimmable" data-nets="${t.net}" data-step="${t.step}" data-trace="${i}"><path d="${d}" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 5" opacity=".95"/></g>`;
+  };
+  if(view==='bot' || showX) s+=`<g id="traces" ${view==='top'?'opacity=".9"':''}>${L.traces.map(trSvg).join('')}</g>`;
+  // pads (wire entry points)
+  let pads='';
+  L.pads.forEach(pd=>{ const [x,y]=hc(pd.x,pd.y); const col=WIRE[pd.id]||'#888';
+    pads+=`<g class="dimmable padg" data-nets="${pd.net}" data-pad="${pd.id}" data-step="${WSTEP}" tabindex="0">${view==='top'?`<circle cx="${x}" cy="${y}" r="6" fill="${col}" stroke="#000" stroke-opacity=".5"/><circle cx="${x}" cy="${y}" r="2.4" fill="#d0d4d8"/>`:`<circle cx="${x}" cy="${y}" r="6.4" fill="var(--solder)" stroke="${col}" stroke-width="2"/>`}</g>`; });
+  // pad group labels
+  const grp={}; L.pads.forEach(p=>{(grp[p.group]=grp[p.group]||[]).push(p)});
+  let gl='';
+  for(const g in grp){ const ps=grp[g]; if(g==='FC'&&ps.length){ const main=ps.filter(p=>p.id!=='PB0'); const xs=main.map(p=>hc(p.x,p.y)[0]); const y=hc(0,main[0].y)[1];
+      gl+=`<text x="${(Math.min(...xs)+Math.max(...xs))/2}" y="${y-11}" text-anchor="middle" class="lbl" font-weight="600" fill="#fff" paint-order="stroke" stroke="var(--board)" stroke-width="2.6">FC</text>`;
+      const pb=hc(5,10); gl+=`<text x="${pb[0]+(view==='top'?10:-10)}" y="${pb[1]+3}" text-anchor="${view==='top'?'start':'end'}" class="lbl" font-weight="600" fill="#fff" paint-order="stroke" stroke="var(--board)" stroke-width="2.6">PB0 → FC</text>`; continue; }
+    const xs=ps.map(p=>hc(p.x,p.y)[0]); const y=hc(0,ps[0].y)[1]; const short={SHT21:'SHT21',BMP280:'BMP280',MAX30100:'MAX30100',TCRT5000:'TCRT5000 cable'}[g];
+    const lx = view==='top' ? Math.min(...xs)-10 : Math.max(...xs)+10;
+    gl+=`<text x="${lx}" y="${y+3}" text-anchor="end" class="lbl" font-weight="600" fill="#fff" paint-order="stroke" stroke="var(--board)" stroke-width="2.6" style="${view==='bot'?'text-anchor:start':''}">${short}</text>`; }
+  // parts
+  const parts = L.parts.map(view==='top'?drawPart:drawGhost).join('');
+  if(view==='top'){ s+=`<g>${parts}</g><g>${pads}</g>${gl}`; if(showOff) s+=drawWires()+drawOff(); }
+  else s+=`<g>${pads}</g><g>${parts}</g>${gl}`;
+  svg.innerHTML=s;
+  applySel();
+}
+function cellsOf(pts){ const out=[]; for(let i=0;i<pts.length-1;i++){ const [x1,y1]=pts[i],[x2,y2]=pts[i+1]; const n=Math.max(Math.abs(x2-x1),Math.abs(y2-y1)); for(let k=0;k<=n;k++) out.push([x1+Math.sign(x2-x1)*k, y1+Math.sign(y2-y1)*k]); } return out; }
+// ---------- selection
+function applySel(){
+  const svg=$('#svg'); const els=svg.querySelectorAll('.dimmable');
+  if(!sel){ svg.classList.remove('sel'); els.forEach(e=>e.classList.remove('on')); return; }
+  svg.classList.add('sel');
+  els.forEach(e=>{ let on=false; const nets=(e.dataset.nets||'').split(' ');
+    if(sel.type==='net') on = nets.includes(sel.id);
+    else if(sel.type==='step') on = +e.dataset.step===sel.id || (sel.id===TSTEP && (e.dataset.ref==='U2'));
+    else if(sel.type==='nets') on = nets.some(n=>sel.ids.includes(n));
+    else if(sel.type==='part') on = e.dataset.ref===sel.id || (e.classList.contains('trace') && nets.some(n=>sel.nets.includes(n)));
+    else if(sel.type==='pad') on = e.dataset.pad===sel.id || (e.classList.contains('trace') && nets.includes(sel.net));
+    e.classList.toggle('on',on); });
+  document.querySelectorAll('.netbtn').forEach(b=>b.setAttribute('aria-pressed', String(sel.type==='net'&&b.dataset.net===sel.id)));
+}
+function inspectNet(n){ const N_=NETS[n]; const ts=L.traces.filter(t=>t.net===n);
+  $('#insp').innerHTML=`<h2><span style="color:${N_.c}">●</span> ${esc(N_.name)} <span class="pill mono" style="color:${N_.c}">${esc(n)}</span></h2><p>${N_.d}</p>
+  <table><tr><td>joins</td><td>${pinsOf[n].map(esc).join(', ')}</td></tr>${ts.map(t=>`<tr><td>bare</td><td class="mono">${segText(t)}</td></tr>`).join('')}</table>`; }
+function inspectPart(ref){ const p=L.parts.find(q=>q.ref===ref);
+  const bandNote = p.kind==='res' ? `<p class="mono" style="font-size:12px">${BANDS[p.value].map(c=>`<span class="sw" style="background:${COL[c]}"></span>`).join('')} ${BANDS[p.value].join(' · ')}<br>${BAND5[p.value].map(c=>`<span class="sw" style="background:${COL[c]}"></span>`).join('')} 5-band (1 %)</p>`:'';
+  const code = p.code ? ` · printed <b class="mono">${p.code}</b>`:'';
+  $('#insp').innerHTML=`<h2>${p.ref} <span style="font-weight:500">${esc(p.value)}</span></h2><p>${PARTINFO[ref]||''}${code}</p>${bandNote}
+  <table>${p.pins.map(q=>`<tr><td>${p.kind==='res'||p.kind==='cap'?'leg':'pin '+q.name}</td><td><b class="mono">${lab(q.x,q.y)}</b> → <span style="color:${NETS[q.net].c};font-weight:600">${NETS[q.net].name}</span><br><span style="color:var(--muted);font-size:12px">${pinsOf[q.net].filter(s=>!s.startsWith(ref)).map(esc).join(', ')}</span></td></tr>`).join('')}</table>`; }
+function inspectPad(id){ const pd=L.pads.find(p=>p.id===id);
+  $('#insp').innerHTML=`<h2>${esc(pd.group)} wire</h2><p><span class="sw" style="background:${WIRE[id]}"></span> ${esc(pd.label)} → hole <b class="mono">${lab(pd.x,pd.y)}</b></p><table><tr><td>net</td><td><span style="color:${NETS[pd.net].c};font-weight:600">${NETS[pd.net].name}</span> (${pd.net})</td></tr><tr><td>also on it</td><td>${pinsOf[pd.net].map(esc).join(', ')}</td></tr></table><p style="font-size:13px;color:var(--muted)">Push the stripped wire end in from the top, solder on the bottom so the bus trace and the wire share one joint.</p>`; }
+$('#svg').addEventListener('click',e=>{
+  const pg=e.target.closest('.part'); const pd=e.target.closest('[data-pad]');
+  if(pg){ const ref=pg.dataset.ref; sel={type:'part',id:ref,nets:pg.dataset.nets.split(' ')}; inspectPart(ref); setStep(null,true); applySel(); return; }
+  if(pd){ const id=pd.dataset.pad; const p=L.pads.find(q=>q.id===id); sel={type:'pad',id,net:p.net}; inspectPad(id); setStep(null,true); applySel(); return; }
+  const tr=e.target.closest('.trace'); if(tr){ selNet(tr.dataset.nets); }
+});
+$('#svg').addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ const t=e.target.closest('.part,[data-pad]'); if(t){ e.preventDefault(); t.dispatchEvent(new MouseEvent('click',{bubbles:true})); } } });
+function selNet(n){ sel={type:'net',id:n}; inspectNet(n); setStep(null,true); applySel(); }
+// ---------- steps
+function reqHtml(i){ let h=`<div class="legendm">${Object.entries(MODE).map(([k,v])=>`<span><span class="mode m-${k}">${v[0]}</span>${v[1]}</span>`).join('')}</div><p class="fx" style="margin:0 0 4px">Tap an underlined probe point to light it on the board. Tick each check when it passes.</p>`; let k=0;
+  (STEPS[i].req||[]).forEach(r=>{ if(r.h){ h+=`<p class="rh">${r.h}</p>`; return; }
+    const id=`${i+1}.${k++}`, ok=reqDone.has(id), M=MODE[r.m];
+    h+=`<div class="rq${ok?' ok':''}"><input type="checkbox" data-req="${id}" ${ok?'checked':''} aria-label="Check passed"><div><div class="rw"><span class="mode m-${r.m}" title="${M[1]}">${M[0]}</span> <span class="where"${r.nets?` data-nets="${r.nets.join(' ')}"`:''}>${r.w}</span></div><div class="ex">Pass: <b>${r.e}</b></div>${r.f?`<div class="fx">If not: ${r.f}</div>`:''}</div></div>`; });
+  return h; }
+function stepDetail(i){ const n=i+1; const t=tab[i]||'build'; const [ok,tot]=reqCount(i);
+  let h=`<div class="tabs" role="tablist"><button role="tab" data-tab="build" aria-selected="${t==='build'}">Build</button><button role="tab" data-tab="req" aria-selected="${t==='req'}">Requirements <span class="cnt${ok===tot&&tot?' all':''}">${ok}/${tot}</span></button></div>`;
+  if(t==='req') return h+reqHtml(i)+`<label class="mark"><input type="checkbox" data-done="${n}" ${done.has(n)?'checked':''}> Mark step ${n} done</label>`;
+  h+=STEPS[i].d;
+  const parts=L.parts.filter(p=>p.step===n && n!==TSTEP);
+  const tr=L.traces.filter(t=>t.step===n);
+  const pads=L.pads.filter(p=>p.step===n);
+  if(parts.length) h+=`<ul>${parts.map(p=>`<li><b>${p.ref}</b> ${esc(p.value)}${p.code?` (<span class="k">${p.code}</span>)`:''}${p.kind==='res'?` <span class="k">${BANDS[p.value].join('-')}</span>`:''}: ${p.pins.map(q=>`${p.kind==='ecap'?q.name+' ':''}${p.kind==='dip8'?'pin '+q.name+' ':''}<span class="k">${lab(q.x,q.y)}</span>`).join(', ')}</li>`).join('')}</ul>`;
+  if(tr.length) h+=`<p style="margin:8px 0 0"><b>Bare wire on the copper side</b></p><ul>${tr.map(t=>`<li><span style="color:${NETS[t.net].c};font-weight:600">${NETS[t.net].name}</span> <span class="k">${segText(t)}</span></li>`).join('')}</ul>`;
+  if(pads.length){ const g={}; pads.forEach(p=>(g[p.group]=g[p.group]||[]).push(p));
+    h+=`<p style="margin:8px 0 0"><b>Wires in from the top</b></p><ul>${Object.entries(g).map(([k,ps])=>`<li><b>${k}</b>: ${ps.map(p=>`<span class="sw" style="background:${WIRE[p.id]}"></span>${esc(p.label)} <span class="k">${lab(p.x,p.y)}</span>`).join(', ')}</li>`).join('')}</ul>`; }
+  if(tot) h+=`<p style="margin:10px 0 0"><button class="btn" data-tab="req">When it's built: ${tot} checks in Requirements →</button></p>`;
+  h+=`<label class="mark"><input type="checkbox" data-done="${n}" ${done.has(n)?'checked':''}> Mark step ${n} done</label>`;
+  return h;
+}
+function buildSteps(){
+  $('#steps').innerHTML=STEPS.map((s,i)=>`<div class="step${done.has(i+1)?' done':''}" role="button" tabindex="0" data-i="${i}" ${curStep===i?'aria-current="step"':''}><span class="n">${i+1}</span><span class="t">${esc(s.t)}</span><div class="d">${curStep===i?stepDetail(i):''}</div></div>`).join('');
+}
+function setStep(i,silent){ curStep=i; buildSteps(); if(i===null||silent) return;
+  sel={type:'step',id:i+1}; applySel();
+  $('#insp').innerHTML=`<h2>Step ${i+1}</h2><p>${esc(STEPS[i].t)}. Highlighted on the board: everything you add in this step.${i===3?' Flip to the bottom view to see the rails.':''}</p><p class="hint">When it's built, open the <b>Requirements</b> tab and ${i+1<STEPS.length?`don't start step ${i+2} until every check passes`:'every check must pass before the board goes into the satellite'}.</p>`; }
+$('#steps').addEventListener('click',e=>{
+  const cb=e.target.closest('input[data-done]'); if(cb){ const n=+cb.dataset.done; cb.checked?done.add(n):done.delete(n); try{localStorage.setItem('sp_done_v2',JSON.stringify([...done]))}catch(_){}; e.stopPropagation(); const st=cb.closest('.step'); st.classList.toggle('done',cb.checked); return; }
+  const rq=e.target.closest('input[data-req]'); if(rq){ const id=rq.dataset.req; rq.checked?reqDone.add(id):reqDone.delete(id); try{localStorage.setItem('sp_req',JSON.stringify([...reqDone]))}catch(_){};
+    rq.closest('.rq').classList.toggle('ok',rq.checked); const st=rq.closest('.step'), i=+st.dataset.i, [ok,tot]=reqCount(i), c=st.querySelector('.cnt'); if(c){ c.textContent=`${ok}/${tot}`; c.classList.toggle('all',ok===tot); } return; }
+  const tb=e.target.closest('[data-tab]'); if(tb){ const i=+tb.closest('.step').dataset.i; tab[i]=tb.dataset.tab; buildSteps(); const s=document.querySelector(`.step[data-i="${i}"]`); if(s) s.scrollIntoView({block:'nearest'}); return; }
+  const wh=e.target.closest('.where[data-nets]'); if(wh){ sel={type:'nets',ids:wh.dataset.nets.split(' ')}; applySel(); $('#insp').innerHTML=`<h2>Probe points</h2><p>Lit on the board: ${sel.ids.map(n=>`<span style="color:${NETS[n].c};font-weight:600">${esc(NETS[n].name)}</span>`).join(' and ')}.</p><p class="hint">${esc(wh.textContent)}</p>`; return; }
+  if(e.target.closest('.d')) return;
+  const st=e.target.closest('.step'); if(!st) return; const i=+st.dataset.i; if(curStep===i){ setStep(null); clearSel(); } else { setStep(i); if(i===3 && view==='top'){ setView('bot'); } }
+});
+$('#steps').addEventListener('keydown',e=>{ if((e.key==='Enter'||e.key===' ')&&e.target.classList.contains('step')){ e.preventDefault(); e.target.click(); } });
+// ---------- toolbar
+function setView(v){ view=v; $('#vTop').setAttribute('aria-pressed',v==='top'); $('#vBot').setAttribute('aria-pressed',v==='bot'); render(); }
+$('#vTop').onclick=()=>setView('top'); $('#vBot').onclick=()=>setView('bot');
+$('#xray').onchange=e=>{ showX=e.target.checked; render(); };
+$('#offb').onchange=e=>{ showOff=e.target.checked; render(); };
+document.querySelectorAll('[data-z]').forEach(b=>b.onclick=()=>{ $('#stage').dataset.zoom=b.dataset.z; document.querySelectorAll('[data-z]').forEach(x=>x.setAttribute('aria-pressed',x===b)); });
+function clearSel(){ sel=null; applySel(); $('#insp').innerHTML=`<h2>Inspector</h2><p class="hint">Tap any part, pad or wire on the board to see each pin, its hole and what it connects to.</p>`; }
+$('#clear').onclick=()=>{ setStep(null); clearSel(); };
+$('#legend').innerHTML=Object.entries(NETS).map(([k,v])=>`<button class="netbtn" data-net="${k}" aria-pressed="false"><i style="background:${v.c}"></i>${k}</button>`).join('');
+$('#legend').addEventListener('click',e=>{ const b=e.target.closest('.netbtn'); if(!b) return; if(sel&&sel.type==='net'&&sel.id===b.dataset.net) clearSel(); else selNet(b.dataset.net); });
+// ---------- reference cards
+const REF = [
+ {h:'TCRT5000 — IR LED + phototransistor', svg:`<svg viewBox="0 0 360 180"><g transform="translate(20,18)">
+   <rect x="0" y="0" width="150" height="76" rx="6" fill="#151515"/><rect x="10" y="10" width="56" height="56" rx="4" fill="#2e7bd6"/><circle cx="38" cy="38" r="18" fill="#a7cdf5"/><rect x="84" y="10" width="56" height="56" rx="4" fill="#050505"/><circle cx="112" cy="38" r="18" fill="#262626"/>
+   <g stroke="#b5b9bd" stroke-width="3"><line x1="24" y1="76" x2="24" y2="122"/><line x1="52" y1="76" x2="52" y2="122"/><line x1="98" y1="76" x2="98" y2="122"/><line x1="126" y1="76" x2="126" y2="122"/></g>
+   <g font-size="12" font-weight="700" text-anchor="middle"><text x="24" y="138" fill="#d6a200">A</text><text x="52" y="138" fill="var(--muted)">K</text><text x="98" y="138" fill="#e03131">C</text><text x="126" y="138" fill="#2b8a3e">E</text></g>
+   <text x="38" y="156" text-anchor="middle" font-size="9" fill="var(--muted)">IR LED</text><text x="112" y="156" text-anchor="middle" font-size="9" fill="var(--muted)">detector</text></g>
+   <g font-size="10" fill="var(--ink)"><text x="190" y="40">A → LED_A pad (via R1)</text><text x="190" y="58">K → GND pad</text><text x="190" y="76">C → +3.3 V pad</text><text x="190" y="94">E → SENSE pad</text><text x="190" y="124" fill="var(--muted)">Leg order varies between</text><text x="190" y="138" fill="var(--muted)">makers: check, don't assume</text></g></svg>`,
+  body:`<p>Desolder it from one FZ0225 / HW-511 module. <b>Before you desolder, read the pins off the module's tracks:</b></p><ul><li>LED leg that goes to the small resistor = <b>A</b>; LED leg on GND = <b>K</b>.</li><li>Detector leg on GND = <b>E</b>; detector leg to the 10 k / comparator = <b>C</b>.</li></ul><p><b>Multimeter check (diode mode):</b> LED side shows ≈1.1 V only with red on A. Detector side conducts only red-on-C, black-on-E, and only when you shine a phone torch on it.</p><div class="warn">On the module the emitter is grounded. In SnailPulse it is not: E goes to SENSE and C goes to +3.3 V. Wire it as shown here.</div>`},
+ {h:'MCP6002 — DIP-8, top view', svg:`<svg viewBox="0 0 320 196"><g transform="translate(90,44)"><rect x="0" y="16" width="140" height="78" rx="3" fill="#2b2b2b"/><circle cx="0" cy="55" r="11" fill="var(--stage)"/><circle cx="16" cy="80" r="4" fill="#555"/><text x="76" y="58" text-anchor="middle" font-size="12" font-weight="600" fill="#ddd">MCP6002</text>
+   ${[0,1,2,3].map(i=>`<rect x="${14+i*34}" y="94" width="10" height="18" fill="#a8adb2"/><rect x="${14+i*34}" y="-2" width="10" height="18" fill="#a8adb2"/>`).join('')}
+   ${['1 OUT A','2 −IN A','3 +IN A','4 GND'].map((t,i)=>`<text x="${19+i*34}" y="126" text-anchor="middle" font-size="10" font-weight="600" fill="var(--ink)">${t.split(' ')[0]}</text><text x="${19+i*34}" y="138" text-anchor="middle" font-size="7.5" fill="var(--muted)">${t.split(' ').slice(1).join(' ')}</text>`).join('')}
+   ${['8 +3.3V','7 OUT B','6 −IN B','5 +IN B'].map((t,i)=>`<text x="${19+i*34}" y="-8" text-anchor="middle" font-size="10" font-weight="600" fill="var(--ink)">${t.split(' ')[0]}</text><text x="${19+i*34}" y="-21" text-anchor="middle" font-size="7.5" fill="var(--muted)">${t.split(' ').slice(1).join(' ')}</text>`).join('')}</g></svg>`,
+  body:`<p>Notch (or dot at pin 1) points <b>left</b>, toward column 1. Pin 1 is bottom-left at <span class="mono">c12·r17</span>; numbers run anticlockwise. Pins 6 and 7 are bridged on the copper side: that makes U2B a buffer that outputs 1.65 V.</p><p>Spare MCP6002 goes in your Moscow kit.</p>`},
+ {h:'Resistors — colour bands', svg:'', body:`<table class="bands">${Object.keys(BANDS).map(v=>`<tr><td class="mono" style="white-space:nowrap"><b>${v}</b></td><td>${BANDS[v].map(c=>`<span class="sw" style="background:${COL[c]}"></span>`).join('')}</td><td>${BAND5[v].map(c=>`<span class="sw" style="background:${COL[c]}"></span>`).join('')}</td><td style="color:var(--muted)">${L.parts.filter(p=>p.kind==='res'&&p.value===v).map(p=>p.ref).join(', ')}</td></tr>`).join('')}</table><p style="font-size:13px;color:var(--muted)">Left column: 4-band carbon (beige body, gold last). Right: 5-band metal film (blue body, brown last). Kits mix them, so measure the 1 MΩ and 220 Ω before soldering.</p>`},
+ {h:'Capacitors — yellow 474 / 104 and electrolytics', svg:`<svg viewBox="0 0 320 140"><g transform="translate(30,18)"><rect x="0" y="10" width="44" height="34" rx="12" fill="#f3c623" stroke="#a7820b"/><text x="22" y="32" text-anchor="middle" font-size="12" font-weight="700" fill="#3d3000">474</text><line x1="12" y1="44" x2="12" y2="84" stroke="#b5b9bd" stroke-width="2.4"/><line x1="32" y1="44" x2="32" y2="84" stroke="#b5b9bd" stroke-width="2.4"/><text x="22" y="98" text-anchor="middle" font-size="9" fill="var(--ink)">470 nF ×3</text>
+   <g transform="translate(80,0)"><rect x="0" y="10" width="44" height="34" rx="12" fill="#f3c623" stroke="#a7820b"/><text x="22" y="32" text-anchor="middle" font-size="12" font-weight="700" fill="#3d3000">104</text><line x1="12" y1="44" x2="12" y2="84" stroke="#b5b9bd" stroke-width="2.4"/><line x1="32" y1="44" x2="32" y2="84" stroke="#b5b9bd" stroke-width="2.4"/><text x="22" y="98" text-anchor="middle" font-size="9" fill="var(--ink)">100 nF ×2</text></g>
+   <g transform="translate(170,0)"><rect x="0" y="0" width="40" height="64" rx="5" fill="#1d2a4a"/><rect x="26" y="0" width="14" height="64" fill="#a9b6d6"/><text x="33" y="22" text-anchor="middle" font-size="12" font-weight="700" fill="#1d2a4a">−</text><text x="33" y="40" text-anchor="middle" font-size="12" font-weight="700" fill="#1d2a4a">−</text><line x1="12" y1="64" x2="12" y2="96" stroke="#b5b9bd" stroke-width="2.4"/><line x1="30" y1="64" x2="30" y2="86" stroke="#b5b9bd" stroke-width="2.4"/><text x="12" y="108" text-anchor="middle" font-size="8.5" fill="var(--ink)">+ long</text><text x="44" y="96" font-size="8.5" fill="var(--ink)">− short</text></g></g></svg>`,
+  body:`<p>Ceramics have no polarity. C11 = two 474 in parallel (0.94 µF). C2 = one 474. That uses all three of your 474s. C3 and C5 = 104: take them from your smaller 104s. If a 474 cracks: C2 → five 104 in parallel; C11 → one 474 + four 104.</p><p>Electrolytics (C4, C10): <b>stripe = minus</b>. Both stripes face the top edge (the GND rail on row 3).</p>`},
+ {h:'3296W trimmer — RV3 50 k', svg:`<svg viewBox="0 0 320 132"><g transform="translate(110,10)"><rect x="0" y="0" width="90" height="46" rx="4" fill="#2257b8"/><circle cx="16" cy="23" r="10" fill="#d2b15a" stroke="#8c6e22"/><path d="M9,23 h14" stroke="#6b5216" stroke-width="2.5"/><text x="58" y="27" text-anchor="middle" font-size="12" font-weight="700" fill="#eaf0ff">503</text>
+   ${[0,1,2].map(i=>`<line x1="${25+i*20}" y1="46" x2="${25+i*20}" y2="80" stroke="#b5b9bd" stroke-width="2.6"/><text x="${25+i*20}" y="96" text-anchor="middle" font-size="10" font-weight="600" fill="var(--ink)">${i+1}</text>`).join('')}<text x="45" y="110" text-anchor="middle" font-size="8.5" fill="var(--muted)">2 = wiper (middle)</text></g></svg>`,
+  body:`<p>Code <b class="mono">503</b> = 50 kΩ (<span class="mono">103</span> = 10 k, not this one). Used as a rheostat: the middle pin and one end go to GND (rows 25 + 26), the other end to SENSE (row 24). Orientation doesn't matter; it only flips which way you turn the screw.</p>`},
+ {h:'Sensor modules', svg:'', body:`<p>All three sit off the board on 4 wires each. Read the pin names on each module's silkscreen; the board pads are labelled with names, not positions.</p><ul><li><b>GY-21 (SHT21)</b>: VIN · GND · SCL · SDA. Put it in the snail box air.</li><li><b>BMP280</b>: VCC · GND · SCL · SDA, plus a short wire from <b>SDO to its own GND</b> (address 0x76). Leave CSB unconnected; the module pulls it up.</li><li><b>GY-MAX30100</b>: VIN · GND · SCL · SDA. Its three 4.7 k pull-ups pull to 1.8 V. If SCL/SDA idle below 3.0 V (step 10 requirements), or the STM32 can't see 0x57, remove them.</li></ul><p style="font-size:13px;color:var(--muted)">Suggested wire colours: red +3.3 V, black GND, yellow SCL, blue SDA.</p>`},
+ {h:'Multimeter basics for the Requirements tabs', svg:'', body:`<ul><li><b>Black probe in COM</b>, red in VΩ. Voltages: black on GND, red on the point.</li><li><b>BEEP / Ω / DIODE / F only with power off.</b> Unplug the FC first.</li><li>Touch the probe tips together first. Whatever Ω it shows (often 0.2–0.5 Ω) is the leads; subtract it.</li><li>Readings that <b>climb slowly</b> are capacitors charging. Wait for them to settle.</li><li>Resistance measured on the board can read lower than the part alone because other parts sit in parallel. The expected values in the tabs already account for that.</li><li>Your meter is a 10 MΩ load. Nodes fed through 1 MΩ (pin 3) read a bit low.</li></ul>`},
+ {h:'Before you power it', svg:'', body:`<ol><li>Continuity: +3.3 V to GND must NOT beep (check at the FC pads).</li><li>+5 V to +3.3 V must NOT beep.</li><li>Socket pin 6 to pin 7 beeps; pin 8 to the FC +3V3 pad beeps; pin 4 to the FC GND pad beeps.</li><li>No bare trace touches the next hole over. Rows 14–17 under and around the socket are the tightest spot.</li><li>Electrolytic stripes face row 3.</li></ol>`}
+];
+$('#refgrid').innerHTML=REF.map(r=>`<div class="card"><h3>${r.h}</h3>${r.svg}${r.body}</div>`).join('');
+buildSteps(); render();
+</script>
+
+</body></html>

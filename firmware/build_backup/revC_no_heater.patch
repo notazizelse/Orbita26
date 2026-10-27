@@ -1,0 +1,84 @@
+diff -ru a/firmware/SnailPulse_Flight/SnailPulse_Flight.ino b/firmware/SnailPulse_Flight/SnailPulse_Flight.ino
+--- a/firmware/SnailPulse_Flight/SnailPulse_Flight.ino	2026-10-24 22:25:31.252181916 +0500
++++ b/firmware/SnailPulse_Flight/SnailPulse_Flight.ino	2026-10-24 22:25:31.264884756 +0500
+@@ -67,7 +67,9 @@
+   uint16_t v = analogRead(PIN_HB_ADC);
+   if (next != hb_tail) { hb_ring[hb_head] = v; hb_ring_t[hb_head] = millis(); hb_head = next; }
+   else isr_overruns++;
++#if SP_HEATER_ENABLED
+   if (++ntc_div >= 10) { ntc_div = 0; ntc1_raw = analogRead(PIN_NTC1_ADC); }   // 5 Hz
++#endif
+ }
+ 
+ // ------------------------------ SD logging ------------------------------
+@@ -206,10 +208,12 @@
+ // ------------------------------ setup / loop ------------------------------
+ void setup() {
+   // heater OFF first (R12 already holds the gate low during reset)
++#if SP_HEATER_ENABLED
+   pinMode(PIN_HEATER_PWM, OUTPUT);
+   digitalWrite(PIN_HEATER_PWM, LOW);
+   analogWriteResolution(8);
+   analogWriteFrequency(HEATER_PWM_HZ);
++#endif
+   pinMode(PIN_USER_LED, OUTPUT);
+ 
+   if (IWatchdog.isReset(true)) reset_cause = 1;
+@@ -265,11 +269,17 @@
+   if (now - tSlow >= 1000) {
+     float dt = (tSlow == 0) ? 1.0f : (now - tSlow) / 1000.0f;
+     tSlow = now;
++#if SP_HEATER_ENABLED
+     heater_c = ntc_celsius(ntc1_raw, (1u << ADC_BITS) - 1, NTC_R_FIXED, NTC_R25, NTC_BETA);
++#endif
+     if (!bmp.ok() && bmp.errors < 100) bmp.begin(); else if (bmp.ok()) bmp.read();
+     if (maxs.ok()) maxs.read();
++#if SP_HEATER_ENABLED
+     float box = sht.ok() ? sht.temperature() : NAN;
+     analogWrite(PIN_HEATER_PWM, heater.update(box, heater_c, dt));
++#else
++    (void)dt;   // no heater on rev C: heater_c stays NAN, duty and mode stay 0
++#endif
+   }
+ 
+   // 4) telemetry schedule
+diff -ru a/firmware/SnailPulse_Flight/config.h b/firmware/SnailPulse_Flight/config.h
+--- a/firmware/SnailPulse_Flight/config.h	2026-10-24 22:25:31.252147684 +0500
++++ b/firmware/SnailPulse_Flight/config.h	2026-10-24 22:25:31.291437205 +0500
+@@ -3,7 +3,7 @@
+ // Arduino IDE: STM32 MCU based boards -> Generic STM32H7 -> STM32H750VBTx
+ #pragma once
+ 
+-#define SP_FW_VERSION 0x0100          // v1.0 (high byte = major, low = minor)
++#define SP_FW_VERSION 0x0101          // v1.1 = rev C, no heater (high byte = major, low = minor)
+ 
+ // ---------------- Pins (IntroBus_L, see IntroSat.Platform guide) ----------------
+ #define PIN_HB_ADC      PB0           // J6.1  heartbeat amplifier output (HB_ADC)
+@@ -42,6 +42,10 @@
+ #define HEATER_MAX_C      35.0f       // software limit on heater surface (NTC1); HW cutoff ~40 C
+ #define HEATER_PWM_HZ     1000
+ 
++// Rev C (24 Oct 2026): SnailPulse has NO heater. 0 = PB1 and PC6 are never touched.
++// Set to 1 only if a heater board is wired to PB1 (NTC) and PC6 (MOSFET gate).
++#define SP_HEATER_ENABLED 0
++
+ // ---------------- I2C addresses ----------------
+ #define ADDR_SHT21        0x40
+ #define ADDR_BMP280       0x76        // SDO tied to GND on J8.5
+diff -ru a/ground/snailpulse_ground.py b/ground/snailpulse_ground.py
+--- a/ground/snailpulse_ground.py	2026-10-24 22:25:31.253632434 +0500
++++ b/ground/snailpulse_ground.py	2026-10-24 22:25:31.291729178 +0500
+@@ -193,8 +193,11 @@
+     ax[1].set_ylabel("heart rate, bpm")
+     if env:
+         t = [int(r["t_ms"]) / 60000 for r in env]
+-        ax[2].plot(t, [int(r["box_t_c100"]) / 100 for r in env], label="box (SHT21)")
+-        ax[2].plot(t, [int(r["heater_t_c100"]) / 100 for r in env], label="heater (NTC1)")
++        def temp(col):   # -32768 = sensor missing (rev C has no heater NTC) -> leave a gap
++            return [float("nan") if int(r[col]) == -32768 else int(r[col]) / 100 for r in env]
++        ax[2].plot(t, temp("box_t_c100"), label="box (SHT21)")
++        if any(int(r["heater_t_c100"]) != -32768 for r in env):
++            ax[2].plot(t, temp("heater_t_c100"), label="heater (NTC1)")
+         ax[2].legend()
+     ax[2].set_ylabel("C"); ax[2].set_xlabel("minutes since FC boot")
+     fig.suptitle("SnailPulse flight data")
