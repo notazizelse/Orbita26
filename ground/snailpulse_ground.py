@@ -23,15 +23,21 @@ PACKETS = {
     0x10: ("SNAIL", "<IHHHBBHH20sB2s",
            ["t_ms", "bpm_x10", "last_ibi_ms", "beats_total", "quality", "flags", "amp_counts",
             "dc_counts", "wave", "wave_n", "rsv"]),
-    0x11: ("ENV", "<IhHIhhBBHB3s",
+    0x11: ("ENV", "<IhHIhhBBHB3shHHIh",         # fw 1.2+: 36 bytes (DHT-11, MQ-7, BMP280 #2 appended)
            ["t_ms", "box_t_c100", "box_rh_c100", "box_press_pa", "bmp_t_c100", "heater_t_c100",
-            "heater_duty", "heater_mode", "max30100_ir", "sensors_ok", "rsv"]),
+            "heater_duty", "heater_mode", "max30100_ir", "sensors_ok", "rsv",
+            "dht_t_c100", "dht_rh_c100", "mq7_mv", "box2_press_pa", "bmp2_t_c100"]),
     0x7F: ("STATUS", "<IHHHHHHHHB3s",
            ["t_ms", "fw_version", "boot_count", "frames_sent", "acks_missed", "frames_dropped",
             "i2c_errors", "sd_errors", "loop_max_ms", "reset_cause", "rsv"]),
 }
+# Shorter ENV packets from older builds (24 bytes: fw 1.0-1.1; 30 bytes: an early 1.2 test build).
+# The fields they lack decode as "missing".
+ENV_OLD_FMTS = ["<IhHIhhBBHB3shHH", "<IhHIhhBBHB3s"]
+ENV_MISSING = {"dht_t_c100": -32768, "dht_rh_c100": 0xFFFF, "mq7_mv": 0xFFFF, "box2_press_pa": 0, "bmp2_t_c100": -32768}
 for t, (n, fmt, names) in PACKETS.items():
     assert struct.calcsize(fmt) <= MAX_PAYLOAD, n
+assert struct.calcsize(PACKETS[0x11][1]) == 36 and [struct.calcsize(f) for f in ENV_OLD_FMTS] == [30, 24]
 
 
 def crc16_ccitt(data: bytes) -> int:
@@ -80,6 +86,11 @@ def decode(ptype, payload):
     name, fmt, names = PACKETS[ptype]
     size = struct.calcsize(fmt)
     if len(payload) < size:
+        for old in (ENV_OLD_FMTS if name == "ENV" else []):
+            if len(payload) >= struct.calcsize(old):
+                d = {**ENV_MISSING, **dict(zip(names, struct.unpack_from(old, payload)))}
+                d.pop("rsv", None)
+                return name, d
         return name, None
     d = dict(zip(names, struct.unpack_from(fmt, payload)))
     d.pop("rsv", None)
@@ -98,9 +109,15 @@ def scaled(name, d):
         return (f"HR {d['bpm']:5.1f} bpm  IBI {d['last_ibi_ms']} ms  q {d['quality']:3d}%  "
                 f"beats {d['beats_total']}  amp {d['amp_counts']}  dc {d['dc_counts']}  {' '.join(flags)}")
     if name == "ENV":
-        return (f"box {f(d['box_t_c100'])} C {d['box_rh_c100'] / 100:.1f} %RH {d['box_press_pa'] / 100:.1f} mbar | "
-                f"heater {f(d['heater_t_c100'])} C duty {d['heater_duty'] * 100 // 255}% mode {d['heater_mode']} | "
-                f"ok=0x{d['sensors_ok']:02X}")
+        rh = lambda v: "n/a" if v == 0xFFFF else f"{v / 100:.0f}"
+        mbar = lambda v: "n/a" if v == 0 else f"{v / 100:.1f}"
+        line = (f"box {f(d['box_t_c100'])} C {d['box_rh_c100'] / 100:.1f} %RH | "
+                f"BMP#1 {mbar(d['box_press_pa'])} mbar {f(d['bmp_t_c100'])} C | BMP#2 {mbar(d['box2_press_pa'])} mbar {f(d['bmp2_t_c100'])} C | "
+                f"DHT {f(d['dht_t_c100'], 100)} C {rh(d['dht_rh_c100'])} %RH | "
+                f"MQ-7 {'n/a' if d['mq7_mv'] == 0xFFFF else str(d['mq7_mv']) + ' mV'} | ")
+        if d["heater_t_c100"] != inv or d["heater_duty"]:          # only rev B has a heater
+            line += f"heater {f(d['heater_t_c100'])} C duty {d['heater_duty'] * 100 // 255}% mode {d['heater_mode']} | "
+        return line + f"ok=0x{d['sensors_ok']:02X}"
     if name == "BASE":
         return (f"{d['press_pa'] / 100:.2f} mbar  alt {d['alt_dm'] / 10:.0f} m  baroT {f(d['baro_t_c100'])} C  "
                 f"acc {d['ax_mg']},{d['ay_mg']},{d['az_mg']} mg  fcT {f(d['fc_t_x8'], 8)} C")
@@ -119,10 +136,15 @@ class CsvSink:
     def write(self, name, d, seq):
         if name not in self.files:
             path = os.path.join(self.folder, f"{name.lower()}.csv")
+            cols = ["rx_time", "seq"] + [k for k in d if k != "wave"]
             new = not os.path.exists(path)
+            if not new:   # columns changed (e.g. ENV grew in fw 1.2): start a new file, don't mix layouts
+                with open(path, newline="") as r:
+                    if next(csv.reader(r), None) != cols:
+                        path = path[:-4] + time.strftime("_%Y%m%d_%H%M%S") + ".csv"
+                        new = True
             fh = open(path, "a", newline="")
             w = csv.writer(fh)
-            cols = ["rx_time", "seq"] + [k for k in d if k != "wave"]
             if new:
                 w.writerow(cols)
             self.files[name] = (fh, w, cols)
@@ -176,14 +198,17 @@ def run(stream_read, out_dir, raw_path=None, quiet=False):
 
 def plot(folder):
     import matplotlib.pyplot as plt
-    def load(name):
-        path = os.path.join(folder, name)
-        if not os.path.exists(path):
+    def load(name):   # newest of name.csv / name_<date>.csv (a new one starts when the columns change)
+        base = name[:-4]
+        cands = [os.path.join(folder, f) for f in os.listdir(folder)
+                 if f.endswith(".csv") and (f == name or f.startswith(base + "_2"))]
+        if not cands:
             return []
+        path = max(cands, key=os.path.getmtime)
         with open(path) as fh:
             return list(csv.DictReader(fh))
     sn, wv, env = load("snail.csv"), load("waveform.csv"), load("env.csv")
-    fig, ax = plt.subplots(3, 1, figsize=(11, 8), sharex=True)
+    fig, ax = plt.subplots(5, 1, figsize=(11, 12), sharex=True)
     if wv:
         ax[0].plot([int(r["t_ms"]) / 60000 for r in wv], [int(r["hb_adc_8bit"]) for r in wv], lw=0.6)
     ax[0].set_ylabel("HB_ADC (8-bit)")
@@ -193,10 +218,25 @@ def plot(folder):
     ax[1].set_ylabel("heart rate, bpm")
     if env:
         t = [int(r["t_ms"]) / 60000 for r in env]
-        ax[2].plot(t, [int(r["box_t_c100"]) / 100 for r in env], label="box (SHT21)")
-        ax[2].plot(t, [int(r["heater_t_c100"]) / 100 for r in env], label="heater (NTC1)")
+        def temp(col):   # -32768 = sensor missing (rev C has no heater NTC) -> leave a gap
+            return [float("nan") if int(r[col]) == -32768 else int(r[col]) / 100 for r in env]
+        ax[2].plot(t, temp("box_t_c100"), label="box (SHT21)")
+        if "dht_t_c100" in env[0] and any(int(r["dht_t_c100"]) != -32768 for r in env):
+            ax[2].plot(t, temp("dht_t_c100"), label="box (DHT-11)")
+        if any(int(r["heater_t_c100"]) != -32768 for r in env):
+            ax[2].plot(t, temp("heater_t_c100"), label="heater (NTC1)")
         ax[2].legend()
-    ax[2].set_ylabel("C"); ax[2].set_xlabel("minutes since FC boot")
+        if "mq7_mv" in env[0]:   # 0xFFFF = MQ-7 off or older firmware -> gap
+            ax[3].plot(t, [float("nan") if int(r["mq7_mv"]) == 0xFFFF else int(r["mq7_mv"]) for r in env])
+        def mbar(col):   # 0 = sensor missing -> gap
+            return [float("nan") if int(r.get(col) or 0) == 0 else int(r[col]) / 100 for r in env]
+        ax[4].plot(t, mbar("box_press_pa"), label="BMP280 #1 (0x76)")
+        if "box2_press_pa" in env[0]:
+            ax[4].plot(t, mbar("box2_press_pa"), label="BMP280 #2 (0x77)")
+        ax[4].legend()
+    ax[2].set_ylabel("C")
+    ax[3].set_ylabel("MQ-7 AO, mV")
+    ax[4].set_ylabel("box pressure, mbar"); ax[4].set_xlabel("minutes since FC boot")
     fig.suptitle("SnailPulse flight data")
     fig.tight_layout()
     out = os.path.join(folder, "snailpulse_flight.png")

@@ -127,6 +127,23 @@ svg.sel .trace.on path[stroke-dasharray]{stroke-dasharray:none;stroke-width:4.5}
 .vt td:first-child{width:26px;font:700 15px var(--f-mono)}
 .yes{color:var(--accent)} .no{color:#d9480f}
 .tw{overflow-x:auto}
+/* firmware + IntroBus_L section (29 Oct) */
+.ib{width:100%;border-collapse:collapse;font-size:13px;min-width:520px}
+.ib td,.ib th{padding:4px 6px;border-top:1px solid var(--line);vertical-align:middle}
+.ib th{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;text-align:left}
+.ib td.pin{font-family:var(--f-mono);font-weight:600;text-align:center;width:64px;background:var(--bg)}
+.ib td.fn{color:var(--muted);font-size:12px}
+.ib td.l{text-align:right}
+.ib td.pin.on{background:color-mix(in srgb,var(--accent) 26%,var(--bg))}
+.ib .go{font-weight:600}
+.ib .r{font-family:var(--f-mono);color:var(--muted);width:28px;text-align:center}
+.code{width:100%;border-collapse:collapse;font-size:14px;min-width:720px}
+.code td:nth-child(2){width:230px;overflow-wrap:anywhere}
+.code td:nth-child(3){width:130px}
+.code td:nth-child(4){width:180px}
+.code td,.code th{padding:7px 6px;border-top:1px solid var(--line);vertical-align:top;text-align:left}
+.code th{font:600 11.5px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+.kv{font-family:var(--f-mono);font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:8px 0;line-height:1.7;overflow-x:auto;white-space:pre}
 .pt{width:100%;border-collapse:collapse;font-size:13.5px;min-width:760px}
 .pt th{text-align:left;font:600 11.5px var(--f-mono);color:var(--muted);padding:6px;border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.3px}
 .pt td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:top}
@@ -142,8 +159,9 @@ svg.sel .trace.on path[stroke-dasharray]{stroke-dasharray:none;stroke-width:4.5}
     <h1>SnailPulse Perfboard Build</h1>
     <p class="sub">Rev C, heartbeat only. Every part sits on a real 2.54&nbsp;mm hole grid, 30 × 30 holes (76&nbsp;mm square). Tap a step, a part or a net to light up exactly what goes where. Bottom view is mirrored, the way the board looks when you flip it to solder.</p>
     <p class="sub"><b>Updated 24 Oct for the parts you actually have.</b> New step 1 (measure parts, desolder the TCRT5000). Every step now has a <b>Requirements</b> tab: the multimeter checks to pass before you start the next step. <a href="#yourparts">Your parts list, answered ↓</a></p>
+    <p class="sub"><b>Updated 29 Oct:</b> a DHT-11 (data → <b>PC6</b>) and an MQ-7 (AO → <b>PB1</b>) are on the board, both powered from +3.3 V, and a <b>second BMP280</b> shares the I²C bus: #1 has SDO → GND (<b>0x76</b>), #2 has SDO → VCC (<b>0x77</b>). New step 10 wires them, and step 11 runs the new sensor-test sketch. <a href="#firmware">Which code to upload where, the IntroBus_L pin map, and the voltages to check ↓</a></p>
   </div>
-  <div class="meta"><span>Board <b>76.2 × 76.2 mm</b></span><span>Holes <b>c1–c30 · r1–r30</b></span><span>Checked against <b>Orbita26 rev C netlist</b></span><span>Parts <b>your list, 24 Oct</b></span></div>
+  <div class="meta"><span>Board <b>76.2 × 76.2 mm</b></span><span>Holes <b>c1–c30 · r1–r30</b></span><span>Checked against <b>Orbita26 rev C netlist + 29 Oct sensors</b></span><span>Parts <b>your list, 24 Oct + DHT-11, MQ-7</b></span></div>
 </header>
 
 <div class="main">
@@ -177,6 +195,57 @@ svg.sel .trace.on path[stroke-dasharray]{stroke-dasharray:none;stroke-width:4.5}
   </aside>
 </div>
 
+<section class="ref" id="firmware" aria-label="Firmware and flight-controller wiring">
+  <h2>Which code goes where, and where each wire lands</h2>
+  <p class="sub" style="margin-bottom:12px">Every sketch goes to the <b>flight controller</b>. The SnailPulse board has no processor, and the communication and power boards keep the organizers' firmware.</p>
+  <div class="pgrid">
+    <div class="card wide">
+      <h3>Code → board</h3>
+      <div class="tw"><table class="code">
+        <thead><tr><th>#</th><th>Sketch (open the .ino)</th><th>Upload to</th><th>When</th><th>What you see</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><b class="mono">firmware/tools/SensorTest/SensorTest.ino</b></td><td>Flight controller (STM32H750)</td><td>After step 11's power checks pass. Run it first.</td><td>Serial Monitor on the FC's USB-C, 115200: a PASS / WARN / FAIL line for each of the 12 sensors, then live values every 2 s. Keys: <span class="mono">t</span> test again, <span class="mono">p</span> plotter stream, <span class="mono">s</span> I²C scan.</td></tr>
+          <tr><td>2</td><td><b class="mono">firmware/tools/HB_Tune/HB_Tune.ino</b></td><td>Flight controller</td><td>Tuning RV3 on the live snail</td><td>Serial Plotter: <span class="mono">hb</span>, <span class="mono">hb_dc</span> and <span class="mono">mq7_mV</span> at 50 Hz</td></tr>
+          <tr><td>3</td><td><b class="mono">firmware/SnailPulse_Flight/SnailPulse_Flight.ino</b></td><td>Flight controller</td><td>Flight. Firmware 1.2 (29 Oct): heater off, reads the DHT-11 on PC6, the MQ-7 on PB1 and both BMP280s (0x76 + 0x77). Needs IntroStratLib, STM32SD and FatFs.</td><td>LoRa packets on the ground station. The ENV line shows the SHT21, both BMP280s, the DHT-11 and the MQ-7 every 4 s.</td></tr>
+        </tbody>
+      </table></div>
+      <p style="margin:10px 0 4px"><b>Arduino IDE settings (same for all three)</b></p>
+      <div class="kv">Board manager URL   https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectronics_index.json
+Package version     STM32 MCU based boards 2.12.0  (SensorTest + HB_Tune also build on 3.0.0;
+                    the flight code was only built on 2.12, so pick 2.12.0 for everything)
+Tools → Board       STM32 MCU based boards → Generic STM32H7 Series
+Board part number   Generic H750VBTx   (STM32H750VBTx)
+Upload method       STM32CubeProgrammer (SWD)     ← install STM32CubeProgrammer first
+ST-Link → PROG      SWCLK → CLK · SWDIO → SWD · GND → GND   (not its 3.3 V when the power module is on)
+BOOT0 jumper        on 0 (back of the FC), then Upload
+Serial Monitor      FC USB-C port, 115200 baud</div>
+    </div>
+    <div class="card">
+      <h3>IntroBus_L on the flight controller</h3>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 6px">The 2 × 20 payload header, rows as printed in the IntroSat guide (p. 5, "view of the board from above"). Highlighted pins carry a SnailPulse wire. Check the names on your FC's silkscreen before plugging in. <b>Never</b> use IntroBus_S, the 16-pin header.</p>
+      <div class="tw"><table class="ib">
+        <thead><tr><th class="l" style="text-align:right">function</th><th>left</th><th class="r">row</th><th>right</th><th>function → wire</th></tr></thead>
+        <tbody id="ibrows"></tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <h3>Before the sensor test: what to measure</h3>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 6px">Black probe on GND. All of these are also in the Requirements tabs of steps 10 and 11.</p>
+      <table class="vt">
+        <tr><td class="no">○</td><td><b>Power off.</b> FC +5V ↔ FC +3V3: <b>no beep</b>. FC +3V3 ↔ GND in Ω mode: <b>≈30–40 Ω</b> with the MQ-7 plugged in (its heater), kΩ without it. Under 20 Ω is a short. FC +5V ↔ GND: high or OL.</td></tr>
+        <tr><td class="no">○</td><td><b>Power off.</b> DHT DATA ↔ GND: no beep. DATA ↔ +3V3: 4.7–10 kΩ (pull-up). MQ-7 AO ↔ GND: ≈1 kΩ or ≈10 kΩ (its load resistor; put it in <span class="mono">MQ7_RL_OHM</span>). BMP280 #1 SDO ↔ its GND: beep. BMP280 #2 SDO ↔ its VCC: beep.</td></tr>
+        <tr><td class="yes">V</td><td><b>FC +5V pad</b> 4.75–5.25 V · <b>FC +3V3 pad</b> 3.20–3.40 V, measured while the MQ-7 heats</td></tr>
+        <tr><td class="yes">V</td><td><b>U2 pin 7 (VREF)</b> 1.60–1.70 V · <b>PB0 / HB_ADC</b> 1.2–2.1 V · <b>SENSE</b> 0.8–1.2 V (set with RV3) · <b>TCRT A</b> 1.1–1.4 V</td></tr>
+        <tr><td class="yes">V</td><td><b>SCL, SDA</b> idle 3.0–3.3 V (1.8–2.6 V: remove the MAX30100 pull-ups)</td></tr>
+        <tr><td class="yes">V</td><td><b>DHT-11 VCC</b> 3.2–3.4 V · <b>DHT DATA</b> idle 3.2–3.4 V</td></tr>
+        <tr><td class="yes">V</td><td><b>MQ-7 VCC</b> 3.2–3.4 V · <b>MQ-7 AO</b> ≈0.02–1.5 V in clean air after 3 min, never above 3.3 V</td></tr>
+        <tr><td class="yes">V</td><td><b>BMP280 #1 SDO</b> 0 V (low = 0x76) · <b>BMP280 #2 SDO</b> 3.2–3.4 V (high = 0x77)</td></tr>
+      </table>
+      <div class="warn" style="margin-top:8px">The MQ-7 is rated for a 5 V heater. On 3.3 V it gets ≈45 % of the heater power: it still reacts to gas, but its ppm chart doesn't apply. If you move its VCC to +5 V, its AO can reach 5 V. Put a divider in the AO wire first (10 kΩ AO → PB1, 20 kΩ PB1 → GND), because PB1 is not 5 V-tolerant as an analog input.</div>
+    </div>
+  </div>
+</section>
+
 <section class="ref" id="yourparts" aria-label="Your parts">
   <h2>Your parts, checked against the build</h2>
   <p class="sub" style="margin-bottom:12px">Your Numbers list row by row: where each part goes, what's left over, and answers to the notes column.</p>
@@ -185,8 +254,9 @@ svg.sel .trace.on path[stroke-dasharray]{stroke-dasharray:none;stroke-width:4.5}
       <h3>Can we still do every experiment?</h3>
       <table class="vt">
         <tr><td class="yes">✓</td><td><b>Heartbeat through the shell</b> (TCRT5000 → MCP6002 amplifier → PB0). Every part is on your list. The TCRT5000 comes off one HW-511.</td></tr>
-        <tr><td class="yes">✓</td><td><b>Box air:</b> temperature and humidity (GY-21 / SHT21) and pressure (BMP280).</td></tr>
-        <tr><td class="yes">✓</td><td><b>Backup pulse sensor</b> (MAX30100), after one check of its I²C pull-ups in step 10.</td></tr>
+        <tr><td class="yes">✓</td><td><b>Box air:</b> temperature and humidity (GY-21 / SHT21) and pressure (two BMP280s, 0x76 and 0x77, as a cross-check).</td></tr>
+        <tr><td class="yes">✓</td><td><b>Backup pulse sensor</b> (MAX30100), after one check of its I²C pull-ups in step 11.</td></tr>
+        <tr><td class="yes">✓</td><td><b>Second temperature/humidity reading + CO gas</b> (added 29 Oct): DHT-11 on PC6 and MQ-7 on PB1. On 3.3 V the MQ-7 shows changes in gas, not calibrated ppm.</td></tr>
         <tr><td class="no">✗</td><td><b>Heater at 20 °C + 40 °C hardware cutoff.</b> You dropped it on purpose: insulation instead. You still have most of it (IRLZ44N, LM393, XT30, 2 × 150 Ω). Missing: the two 10 k NTC thermistors and the third 150 Ω. With two resistors it would be 75 Ω, 2.9 W at 14.8 V instead of 4.4 W.</td></tr>
         <tr><td class="no">✗</td><td><b>ADS-B receiver idea.</b> Not with these parts. It needs an SDR receiver for 1090 MHz, its antenna and a computer to decode. None of that is on this list.</td></tr>
       </table>
@@ -209,7 +279,9 @@ svg.sel .trace.on path[stroke-dasharray]{stroke-dasharray:none;stroke-width:4.5}
         <thead><tr><th>Your row</th><th>Have</th><th>Goes to</th><th>Spare</th><th>Your note → answer</th></tr></thead>
         <tbody>
         <tr><td><b>Resistor pack</b></td><td>1</td><td><span class="tag on">on board</span><br>R1 220 Ω · R3, R16 1 kΩ · R6, R7 10 kΩ · R17 100 kΩ · R15 1 MΩ</td><td>rest of kit</td><td>It has every value the board needs. Measure each one in step 1 before soldering, because kits get mixed up.</td></tr>
-        <tr><td><b>bmp280</b></td><td>1</td><td><span class="tag on">off-board</span><br>Box pressure, I²C 0x76</td><td>0</td><td>Wire SDO to its own GND, or the address changes to 0x77.</td></tr>
+        <tr><td><b>bmp280</b></td><td>2</td><td><span class="tag on">off-board</span><br>Box pressure ×2, I²C 0x76 + 0x77</td><td>0</td><td>Two modules on one bus need different addresses, set by SDO: #1 SDO → its own GND (0x76, wired in step 9), #2 SDO → its own VCC (0x77, step 10). If both SDO pins go the same way, both answer at one address and neither reads correctly. SensorTest requires both.</td></tr>
+        <tr><td><b>dht-11</b></td><td>1</td><td><span class="tag on">off-board</span><br>Temp + humidity, DATA → PC6 (step 10)</td><td>0</td><td>Runs on 3.3 V. Needs a pull-up on DATA: the 3-pin module has one, a bare sensor needs 10 kΩ to VCC. Accuracy ±2 °C / ±5 %RH, so the SHT21 stays the main box sensor.</td></tr>
+        <tr><td><b>mq-7</b></td><td>1</td><td><span class="tag on">off-board</span><br>CO gas, AO → PB1 (step 10)</td><td>0</td><td>On 3.3 V its heater gets ≈45 % of its rated power: it reacts, but the ppm curve doesn't apply. On 5 V it needs a divider before PB1. Keep the warm can away from the snail and the temperature sensors.</td></tr>
         <tr><td><b>hw-511</b></td><td>2</td><td><span class="tag on">sensor</span><br>TCRT5000 from one of them, glued to the shell</td><td>1 module</td><td>HW-511 is a robot line-follower board. You only need the black-and-blue TCRT5000 on it. The LM393, pot and LEDs stay on the module.</td></tr>
         <tr><td><b>gy-21</b></td><td>1</td><td><span class="tag on">off-board</span><br>SHT21, box temperature + humidity, 0x40</td><td>0</td><td>Mount it in the box air, away from the snail's wet surfaces.</td></tr>
         <tr><td><b>5w150ohmJ</b></td><td>2</td><td><span class="tag off">not used</span><br>Was the heater</td><td>2</td><td>"J" on a resistor means ±5 % tolerance.</td></tr>
@@ -237,10 +309,10 @@ svg.sel .trace.on path[stroke-dasharray]{stroke-dasharray:none;stroke-width:4.5}
 </div>
 
 <script>
-const L = {"parts":[{"ref":"U2","kind":"dip8","value":"MCP6002","pins":[{"name":"1","x":11,"y":16,"net":"OUT"},{"name":"2","x":12,"y":16,"net":"FB"},{"name":"3","x":13,"y":16,"net":"HP_IN"},{"name":"4","x":14,"y":16,"net":"GND"},{"name":"5","x":14,"y":13,"net":"REF_DIV"},{"name":"6","x":13,"y":13,"net":"VREF"},{"name":"7","x":12,"y":13,"net":"VREF"},{"name":"8","x":11,"y":13,"net":"+3V3"}],"step":2},{"ref":"R1","kind":"res","value":"220 Ω","pins":[{"name":"a","x":23,"y":12,"net":"+5V"},{"name":"b","x":23,"y":16,"net":"LED_A"}],"step":7},{"ref":"R3","kind":"res","value":"1 kΩ","pins":[{"name":"a","x":7,"y":16,"net":"OUT"},{"name":"b","x":7,"y":12,"net":"HB_ADC"}],"step":5},{"ref":"R6","kind":"res","value":"10 kΩ","pins":[{"name":"a","x":16,"y":4,"net":"+3V3"},{"name":"b","x":16,"y":8,"net":"REF_DIV"}],"step":4},{"ref":"R7","kind":"res","value":"10 kΩ","pins":[{"name":"a","x":18,"y":3,"net":"GND"},{"name":"b","x":18,"y":7,"net":"REF_DIV"}],"step":4},{"ref":"R15","kind":"res","value":"1 MΩ","pins":[{"name":"a","x":13,"y":20,"net":"HP_IN"},{"name":"b","x":17,"y":20,"net":"VREF"}],"step":6},{"ref":"R16","kind":"res","value":"1 kΩ","pins":[{"name":"a","x":12,"y":18,"net":"FB"},{"name":"b","x":16,"y":18,"net":"VREF"}],"step":5},{"ref":"R17","kind":"res","value":"100 kΩ","pins":[{"name":"a","x":12,"y":19,"net":"FB"},{"name":"b","x":8,"y":19,"net":"OUT"}],"step":5},{"ref":"C2","kind":"cap","value":"470 nF","pins":[{"name":"a","x":12,"y":21,"net":"FB"},{"name":"b","x":8,"y":21,"net":"OUT"}],"code":"474","step":5},{"ref":"C3","kind":"cap","value":"100 nF","pins":[{"name":"a","x":5,"y":12,"net":"HB_ADC"},{"name":"b","x":5,"y":14,"net":"GND"}],"code":"104","step":5},{"ref":"C4","kind":"ecap","value":"10 µF","pins":[{"name":"+","x":20,"y":5,"net":"REF_DIV"},{"name":"-","x":20,"y":3,"net":"GND"}],"step":4},{"ref":"C5","kind":"cap","value":"100 nF","pins":[{"name":"a","x":12,"y":4,"net":"+3V3"},{"name":"b","x":12,"y":2,"net":"GND"}],"code":"104","step":4},{"ref":"C10","kind":"ecap","value":"10 µF","pins":[{"name":"+","x":14,"y":3,"net":"+3V3"},{"name":"-","x":14,"y":2,"net":"GND"}],"step":4},{"ref":"C11a","kind":"cap","value":"470 nF","pins":[{"name":"a","x":13,"y":22,"net":"HP_IN"},{"name":"b","x":15,"y":22,"net":"SENSE"}],"code":"474","step":6},{"ref":"C11b","kind":"cap","value":"470 nF","pins":[{"name":"a","x":13,"y":24,"net":"HP_IN"},{"name":"b","x":15,"y":24,"net":"SENSE"}],"code":"474","step":6},{"ref":"RV3","kind":"trim","value":"50 kΩ","pins":[{"name":"1","x":18,"y":23,"net":"SENSE"},{"name":"2","x":18,"y":24,"net":"GND"},{"name":"3","x":18,"y":25,"net":"GND"}],"code":"503","step":6}],"pads":[{"id":"PB0","x":5,"y":10,"net":"HB_ADC","group":"FC","label":"PB0 (heartbeat → ADC)","step":8},{"id":"FC+5V","x":23,"y":8,"net":"+5V","group":"FC","label":"+5V","step":8},{"id":"FC3V3","x":24,"y":8,"net":"+3V3","group":"FC","label":"+3V3","step":8},{"id":"FCGND","x":25,"y":8,"net":"GND","group":"FC","label":"GND","step":8},{"id":"FCSCL","x":26,"y":8,"net":"SCL","group":"FC","label":"PD12 · SCL4","step":8},{"id":"FCSDA","x":27,"y":8,"net":"SDA","group":"FC","label":"PD13 · SDA4","step":8},{"id":"SHTV","x":24,"y":10,"net":"+3V3","group":"SHT21","label":"VIN","step":8},{"id":"SHTG","x":25,"y":10,"net":"GND","group":"SHT21","label":"GND","step":8},{"id":"SHTC","x":26,"y":10,"net":"SCL","group":"SHT21","label":"SCL","step":8},{"id":"SHTD","x":27,"y":10,"net":"SDA","group":"SHT21","label":"SDA","step":8},{"id":"BMPV","x":24,"y":12,"net":"+3V3","group":"BMP280","label":"VCC","step":8},{"id":"BMPG","x":25,"y":12,"net":"GND","group":"BMP280","label":"GND","step":8},{"id":"BMPC","x":26,"y":12,"net":"SCL","group":"BMP280","label":"SCL","step":8},{"id":"BMPD","x":27,"y":12,"net":"SDA","group":"BMP280","label":"SDA","step":8},{"id":"MAXV","x":24,"y":14,"net":"+3V3","group":"MAX30100","label":"VIN","step":8},{"id":"MAXG","x":25,"y":14,"net":"GND","group":"MAX30100","label":"GND","step":8},{"id":"MAXC","x":26,"y":14,"net":"SCL","group":"MAX30100","label":"SCL","step":8},{"id":"MAXD","x":27,"y":14,"net":"SDA","group":"MAX30100","label":"SDA","step":8},{"id":"TCRS","x":22,"y":20,"net":"SENSE","group":"TCRT5000","label":"E · emitter (SENSE)","step":8},{"id":"TCRA","x":23,"y":20,"net":"LED_A","group":"TCRT5000","label":"A · LED anode","step":8},{"id":"TCRC","x":24,"y":20,"net":"+3V3","group":"TCRT5000","label":"C · collector","step":8},{"id":"TCRK","x":25,"y":20,"net":"GND","group":"TCRT5000","label":"K · LED cathode","step":8}],"traces":[{"net":"+3V3","pts":[[5,4],[24,4]],"step":3},{"net":"+3V3","pts":[[11,4],[11,13]],"step":4},{"net":"+3V3","pts":[[14,3],[14,4]],"step":4},{"net":"+3V3","pts":[[24,4],[24,20]],"step":3},{"net":"GND","pts":[[3,2],[20,2]],"step":3},{"net":"GND","pts":[[3,2],[3,27]],"step":3},{"net":"GND","pts":[[3,27],[25,27]],"step":3},{"net":"GND","pts":[[25,8],[25,27]],"step":3},{"net":"GND","pts":[[18,2],[18,3]],"step":4},{"net":"GND","pts":[[20,2],[20,3]],"step":4},{"net":"GND","pts":[[14,16],[14,15],[3,15]],"step":5},{"net":"GND","pts":[[5,14],[5,15]],"step":5},{"net":"GND","pts":[[18,24],[18,27]],"step":6},{"net":"REF_DIV","pts":[[14,13],[14,8],[20,8]],"step":4},{"net":"REF_DIV","pts":[[18,7],[18,8]],"step":4},{"net":"REF_DIV","pts":[[20,5],[20,8]],"step":4},{"net":"VREF","pts":[[12,13],[13,13]],"step":4},{"net":"VREF","pts":[[13,13],[13,14],[16,14],[16,20],[17,20]],"step":5},{"net":"FB","pts":[[12,16],[12,21]],"step":5},{"net":"OUT","pts":[[11,16],[7,16]],"step":5},{"net":"OUT","pts":[[8,16],[8,21]],"step":5},{"net":"HP_IN","pts":[[13,16],[13,24]],"step":6},{"net":"SENSE","pts":[[15,22],[15,24]],"step":6},{"net":"SENSE","pts":[[15,22],[22,22],[22,20]],"step":6},{"net":"SENSE","pts":[[18,22],[18,23]],"step":6},{"net":"HB_ADC","pts":[[5,12],[7,12]],"step":5},{"net":"HB_ADC","pts":[[5,10],[5,12]],"step":8},{"net":"+5V","pts":[[23,8],[23,12]],"step":7},{"net":"LED_A","pts":[[23,16],[23,20]],"step":7},{"net":"SCL","pts":[[26,8],[26,14]],"step":8},{"net":"SDA","pts":[[27,8],[27,14]],"step":8}]};
+const L = {"parts":[{"ref":"U2","kind":"dip8","value":"MCP6002","pins":[{"name":"1","x":11,"y":16,"net":"OUT"},{"name":"2","x":12,"y":16,"net":"FB"},{"name":"3","x":13,"y":16,"net":"HP_IN"},{"name":"4","x":14,"y":16,"net":"GND"},{"name":"5","x":14,"y":13,"net":"REF_DIV"},{"name":"6","x":13,"y":13,"net":"VREF"},{"name":"7","x":12,"y":13,"net":"VREF"},{"name":"8","x":11,"y":13,"net":"+3V3"}],"step":2},{"ref":"R1","kind":"res","value":"220 Ω","pins":[{"name":"a","x":23,"y":12,"net":"+5V"},{"name":"b","x":23,"y":16,"net":"LED_A"}],"step":7},{"ref":"R3","kind":"res","value":"1 kΩ","pins":[{"name":"a","x":7,"y":16,"net":"OUT"},{"name":"b","x":7,"y":12,"net":"HB_ADC"}],"step":5},{"ref":"R6","kind":"res","value":"10 kΩ","pins":[{"name":"a","x":16,"y":4,"net":"+3V3"},{"name":"b","x":16,"y":8,"net":"REF_DIV"}],"step":4},{"ref":"R7","kind":"res","value":"10 kΩ","pins":[{"name":"a","x":18,"y":3,"net":"GND"},{"name":"b","x":18,"y":7,"net":"REF_DIV"}],"step":4},{"ref":"R15","kind":"res","value":"1 MΩ","pins":[{"name":"a","x":13,"y":20,"net":"HP_IN"},{"name":"b","x":17,"y":20,"net":"VREF"}],"step":6},{"ref":"R16","kind":"res","value":"1 kΩ","pins":[{"name":"a","x":12,"y":18,"net":"FB"},{"name":"b","x":16,"y":18,"net":"VREF"}],"step":5},{"ref":"R17","kind":"res","value":"100 kΩ","pins":[{"name":"a","x":12,"y":19,"net":"FB"},{"name":"b","x":8,"y":19,"net":"OUT"}],"step":5},{"ref":"C2","kind":"cap","value":"470 nF","pins":[{"name":"a","x":12,"y":21,"net":"FB"},{"name":"b","x":8,"y":21,"net":"OUT"}],"code":"474","step":5},{"ref":"C3","kind":"cap","value":"100 nF","pins":[{"name":"a","x":5,"y":12,"net":"HB_ADC"},{"name":"b","x":5,"y":14,"net":"GND"}],"code":"104","step":5},{"ref":"C4","kind":"ecap","value":"10 µF","pins":[{"name":"+","x":20,"y":5,"net":"REF_DIV"},{"name":"-","x":20,"y":3,"net":"GND"}],"step":4},{"ref":"C5","kind":"cap","value":"100 nF","pins":[{"name":"a","x":12,"y":4,"net":"+3V3"},{"name":"b","x":12,"y":2,"net":"GND"}],"code":"104","step":4},{"ref":"C10","kind":"ecap","value":"10 µF","pins":[{"name":"+","x":14,"y":3,"net":"+3V3"},{"name":"-","x":14,"y":2,"net":"GND"}],"step":4},{"ref":"C11a","kind":"cap","value":"470 nF","pins":[{"name":"a","x":13,"y":22,"net":"HP_IN"},{"name":"b","x":15,"y":22,"net":"SENSE"}],"code":"474","step":6},{"ref":"C11b","kind":"cap","value":"470 nF","pins":[{"name":"a","x":13,"y":24,"net":"HP_IN"},{"name":"b","x":15,"y":24,"net":"SENSE"}],"code":"474","step":6},{"ref":"RV3","kind":"trim","value":"50 kΩ","pins":[{"name":"1","x":18,"y":23,"net":"SENSE"},{"name":"2","x":18,"y":24,"net":"GND"},{"name":"3","x":18,"y":25,"net":"GND"}],"code":"503","step":6}],"pads":[{"id":"PB0","x":5,"y":10,"net":"HB_ADC","group":"FC","label":"PB0 (heartbeat → ADC)","step":8},{"id":"FC+5V","x":23,"y":8,"net":"+5V","group":"FC","label":"+5V","step":8},{"id":"FC3V3","x":24,"y":8,"net":"+3V3","group":"FC","label":"+3V3","step":8},{"id":"FCGND","x":25,"y":8,"net":"GND","group":"FC","label":"GND","step":8},{"id":"FCSCL","x":26,"y":8,"net":"SCL","group":"FC","label":"PD12 · SCL4","step":8},{"id":"FCSDA","x":27,"y":8,"net":"SDA","group":"FC","label":"PD13 · SDA4","step":8},{"id":"SHTV","x":24,"y":10,"net":"+3V3","group":"SHT21","label":"VIN","step":8},{"id":"SHTG","x":25,"y":10,"net":"GND","group":"SHT21","label":"GND","step":8},{"id":"SHTC","x":26,"y":10,"net":"SCL","group":"SHT21","label":"SCL","step":8},{"id":"SHTD","x":27,"y":10,"net":"SDA","group":"SHT21","label":"SDA","step":8},{"id":"BMPV","x":24,"y":12,"net":"+3V3","group":"BMP280","label":"VCC","step":8},{"id":"BMPG","x":25,"y":12,"net":"GND","group":"BMP280","label":"GND","step":8},{"id":"BMPC","x":26,"y":12,"net":"SCL","group":"BMP280","label":"SCL","step":8},{"id":"BMPD","x":27,"y":12,"net":"SDA","group":"BMP280","label":"SDA","step":8},{"id":"MAXV","x":24,"y":14,"net":"+3V3","group":"MAX30100","label":"VIN","step":8},{"id":"MAXG","x":25,"y":14,"net":"GND","group":"MAX30100","label":"GND","step":8},{"id":"MAXC","x":26,"y":14,"net":"SCL","group":"MAX30100","label":"SCL","step":8},{"id":"MAXD","x":27,"y":14,"net":"SDA","group":"MAX30100","label":"SDA","step":8},{"id":"TCRS","x":22,"y":20,"net":"SENSE","group":"TCRT5000","label":"E · emitter (SENSE)","step":8},{"id":"TCRA","x":23,"y":20,"net":"LED_A","group":"TCRT5000","label":"A · LED anode","step":8},{"id":"TCRC","x":24,"y":20,"net":"+3V3","group":"TCRT5000","label":"C · collector","step":8},{"id":"TCRK","x":25,"y":20,"net":"GND","group":"TCRT5000","label":"K · LED cathode","step":8},{"id":"FCPC6","x":28,"y":8,"net":"DHT_DATA","group":"FC","label":"PC6 · DHT-11 data","step":9},{"id":"FCPB1","x":29,"y":8,"net":"MQ7_AO","group":"FC","label":"PB1 · ADC (MQ-7)","step":9},{"id":"DHTV","x":24,"y":16,"net":"+3V3","group":"DHT11","label":"VCC (+)","step":9},{"id":"DHTG","x":25,"y":16,"net":"GND","group":"DHT11","label":"GND (−)","step":9},{"id":"DHTD","x":26,"y":16,"net":"DHT_DATA","group":"DHT11","label":"DATA (S)","step":9},{"id":"MQV","x":24,"y":18,"net":"+3V3","group":"MQ7","label":"VCC","step":9},{"id":"MQG","x":25,"y":18,"net":"GND","group":"MQ7","label":"GND","step":9},{"id":"MQA","x":26,"y":18,"net":"MQ7_AO","group":"MQ7","label":"AO","step":9},{"id":"BMBV","x":24,"y":13,"net":"+3V3","group":"BMP280B","label":"VCC","step":9},{"id":"BMBG","x":25,"y":13,"net":"GND","group":"BMP280B","label":"GND","step":9},{"id":"BMBC","x":26,"y":13,"net":"SCL","group":"BMP280B","label":"SCL","step":9},{"id":"BMBD","x":27,"y":13,"net":"SDA","group":"BMP280B","label":"SDA","step":9}],"traces":[{"net":"+3V3","pts":[[5,4],[24,4]],"step":3},{"net":"+3V3","pts":[[11,4],[11,13]],"step":4},{"net":"+3V3","pts":[[14,3],[14,4]],"step":4},{"net":"+3V3","pts":[[24,4],[24,20]],"step":3},{"net":"GND","pts":[[3,2],[20,2]],"step":3},{"net":"GND","pts":[[3,2],[3,27]],"step":3},{"net":"GND","pts":[[3,27],[25,27]],"step":3},{"net":"GND","pts":[[25,8],[25,27]],"step":3},{"net":"GND","pts":[[18,2],[18,3]],"step":4},{"net":"GND","pts":[[20,2],[20,3]],"step":4},{"net":"GND","pts":[[14,16],[14,15],[3,15]],"step":5},{"net":"GND","pts":[[5,14],[5,15]],"step":5},{"net":"GND","pts":[[18,24],[18,27]],"step":6},{"net":"REF_DIV","pts":[[14,13],[14,8],[20,8]],"step":4},{"net":"REF_DIV","pts":[[18,7],[18,8]],"step":4},{"net":"REF_DIV","pts":[[20,5],[20,8]],"step":4},{"net":"VREF","pts":[[12,13],[13,13]],"step":4},{"net":"VREF","pts":[[13,13],[13,14],[16,14],[16,20],[17,20]],"step":5},{"net":"FB","pts":[[12,16],[12,21]],"step":5},{"net":"OUT","pts":[[11,16],[7,16]],"step":5},{"net":"OUT","pts":[[8,16],[8,21]],"step":5},{"net":"HP_IN","pts":[[13,16],[13,24]],"step":6},{"net":"SENSE","pts":[[15,22],[15,24]],"step":6},{"net":"SENSE","pts":[[15,22],[22,22],[22,20]],"step":6},{"net":"SENSE","pts":[[18,22],[18,23]],"step":6},{"net":"HB_ADC","pts":[[5,12],[7,12]],"step":5},{"net":"HB_ADC","pts":[[5,10],[5,12]],"step":8},{"net":"+5V","pts":[[23,8],[23,12]],"step":7},{"net":"LED_A","pts":[[23,16],[23,20]],"step":7},{"net":"SCL","pts":[[26,8],[26,14]],"step":8},{"net":"SDA","pts":[[27,8],[27,14]],"step":8},{"net":"DHT_DATA","pts":[[26,16],[28,16],[28,8]],"step":9},{"net":"MQ7_AO","pts":[[26,18],[29,18],[29,8]],"step":9}]};
 const S = 20, OX = 46, OY = 46, N = 30;          // px per hole, board origin
 const NETS = {
-  '+3V3':   {c:'#e03131', name:'+3.3 V', d:'From the flight controller (+3V3_IS). Powers the MCP6002, the 1.65 V divider, the TCRT5000 collector and all three sensor modules.'},
+  '+3V3':   {c:'#e03131', name:'+3.3 V', d:'From the flight controller (+3V3_IS). Powers the MCP6002, the 1.65 V divider, the TCRT5000 collector, the three I²C modules, the DHT-11 and the MQ-7 heater (≈100 mA, the biggest load on the board).'},
   '+5V':    {c:'#f08c00', name:'+5 V', d:'From the flight controller (+5V_IS). Only drives the IR LED, through R1.'},
   'GND':    {c:'#5c677d', name:'Ground', d:'One ground for everything. On the copper side it is a frame: row 3, column 4, row 28 and column 26.'},
   'LED_A':  {c:'#d6a200', name:'LED anode', d:'R1 (220 Ω) from +5 V feeds the TCRT5000 IR LED: (5 − 1.25 V) / 220 Ω ≈ 17 mA.'},
@@ -251,8 +323,10 @@ const NETS = {
   'FB':     {c:'#0c8599', name:'Feedback', d:'Inverting input of U2A. Gain = 1 + R17/R16 = 1 + 100k/1k = 101. C2 across R17 sets the 3.4 Hz low-pass.'},
   'OUT':    {c:'#e8590c', name:'Amp output', d:'U2 pin 1. Goes through R3 (1 kΩ) to the ADC filter.'},
   'HB_ADC': {c:'#c2255c', name:'To PB0', d:'R3 + C3 filter, then a wire to the flight controller PB0 (ADC). This is the heartbeat signal.'},
-  'SCL':    {c:'#e6a700', name:'I²C SCL', d:'PD12 on the FC. Column 27 bus to SHT21, BMP280 and MAX30100.'},
-  'SDA':    {c:'#1c7ed6', name:'I²C SDA', d:'PD13 on the FC. Column 28 bus to the three modules.'}
+  'SCL':    {c:'#e6a700', name:'I²C SCL', d:'PD12 on the FC. Column 27 bus to SHT21, both BMP280s and MAX30100.'},
+  'SDA':    {c:'#1c7ed6', name:'I²C SDA', d:'PD13 on the FC. Column 28 bus to the four I²C modules.'},
+  'DHT_DATA':{c:'#12b886', name:'DHT-11 data', d:'DHT-11 DATA to PC6 on the FC (digital, one-wire protocol). Needs a 4.7–10 kΩ pull-up to +3.3 V: 3-pin modules have it, a bare 4-pin sensor needs one added. Bare wire c27·r17 → c29·r17 → c29·r9.'},
+  'MQ7_AO': {c:'#82c91e', name:'MQ-7 analog', d:'MQ-7 module AO to PB1 on the FC (ADC). It stays within 0–3.3 V because the module runs on 3.3 V. Bare wire c27·r19 → c30·r19 → c30·r9. DO is not used.'}
 };
 const BANDS = {'220 Ω':['red','red','brown','gold'],'1 kΩ':['brown','black','red','gold'],'10 kΩ':['brown','black','orange','gold'],'100 kΩ':['brown','black','yellow','gold'],'1 MΩ':['brown','black','green','gold']};
 const BAND5 = {'220 Ω':['red','red','black','black','brown'],'1 kΩ':['brown','black','black','brown','brown'],'10 kΩ':['brown','black','black','red','brown'],'100 kΩ':['brown','black','black','orange','brown'],'1 MΩ':['brown','black','black','yellow','brown']};
@@ -260,7 +334,8 @@ const COL = {black:'#1b1b1b',brown:'#7a4a21',red:'#d42a2a',orange:'#f07c12',yell
 const WIRE = { // suggested insulation colours per pad
   'FC+5V':'#f08c00','FC3V3':'#e03131','FCGND':'#222','FCSCL':'#f2c200','FCSDA':'#1c7ed6','PB0':'#8e44ad',
   'SHTV':'#e03131','SHTG':'#222','SHTC':'#f2c200','SHTD':'#1c7ed6','BMPV':'#e03131','BMPG':'#222','BMPC':'#f2c200','BMPD':'#1c7ed6',
-  'MAXV':'#e03131','MAXG':'#222','MAXC':'#f2c200','MAXD':'#1c7ed6','TCRC':'#e03131','TCRK':'#222','TCRA':'#f2c200','TCRS':'#2f9e44'};
+  'MAXV':'#e03131','MAXG':'#222','MAXC':'#f2c200','MAXD':'#1c7ed6','TCRC':'#e03131','TCRK':'#222','TCRA':'#f2c200','TCRS':'#2f9e44',
+  'FCPC6':'#12b886','FCPB1':'#82c91e','DHTV':'#e03131','DHTG':'#222','DHTD':'#12b886','MQV':'#e03131','MQG':'#222','MQA':'#82c91e','BMBV':'#e03131','BMBG':'#222','BMBC':'#f2c200','BMBD':'#1c7ed6'};
 const PARTINFO = {
   U2:'Dual op-amp. A = ×101 amplifier, B = 1.65 V buffer. Notch points LEFT (towards column 1).',
   R1:'IR LED current limit, ≈17 mA.', R3:'ADC series resistor; with C3 forms a 1.6 kHz filter that protects PB0.',
@@ -272,9 +347,9 @@ const PARTINFO = {
 };
 // Rev 24 Oct: a new step 1 (sort + measure parts) was added in front, so every board item moves up one step.
 [...L.parts, ...L.pads, ...L.traces].forEach(o=>o.step++);
-const WSTEP = 9, TSTEP = 10;   // wiring step, final test step
+const WSTEP = 9, NSTEP = 10, TSTEP = 11;   // wiring step, new-sensors step (29 Oct), final test step
 const STEPS = [
-  {t:'Sort and measure your parts', d:`<p>Before any soldering, pull out exactly what this board uses and measure each part. A wrong resistor is easy to swap now and painful later.</p><ul><li><b>Resistors</b> from the kit: 220 Ω ×1, 1 kΩ ×2, 10 kΩ ×2, 100 kΩ ×1, 1 MΩ ×1</li><li><b>474</b> ×3 (all you have), <b>104</b> ×2 (the smaller ones)</li><li><b>10 µF 50 V</b> green electrolytic ×2</li><li><b>503</b> 3296 trimmer ×1 (RV3)</li><li><b>MCP6002</b> ×1 · <b>GY-21</b> · <b>BMP280</b> · <b>GY-MAX30100</b></li><li><b>TCRT5000</b> from one HW-511</li></ul><p><b>Desolder the TCRT5000:</b> before heating, follow the module's tracks to name the four legs (TCRT5000 card at the bottom of the page) and mark the A leg with a marker. Add fresh solder to each joint, then wick or pump it off and wiggle each leg free. Keep the legs long.</p><p>Leave in the box: IRLZ44N, LM393P, 150 Ω 5 W, XT30, 1000 µF. They were for the heater, which rev C dropped.</p>`,
+  {t:'Sort and measure your parts', d:`<p>Before any soldering, pull out exactly what this board uses and measure each part. A wrong resistor is easy to swap now and painful later.</p><ul><li><b>Resistors</b> from the kit: 220 Ω ×1, 1 kΩ ×2, 10 kΩ ×2, 100 kΩ ×1, 1 MΩ ×1</li><li><b>474</b> ×3 (all you have), <b>104</b> ×2 (the smaller ones)</li><li><b>10 µF 50 V</b> green electrolytic ×2</li><li><b>503</b> 3296 trimmer ×1 (RV3)</li><li><b>MCP6002</b> ×1 · <b>GY-21</b> · <b>BMP280</b> ×2 · <b>GY-MAX30100</b></li><li><b>DHT-11</b> (3-pin module, or a bare sensor + one 10 kΩ) · <b>MQ-7</b> module (added 29 Oct, wired in step 10)</li><li><b>TCRT5000</b> from one HW-511</li></ul><p><b>Desolder the TCRT5000:</b> before heating, follow the module's tracks to name the four legs (TCRT5000 card at the bottom of the page) and mark the A leg with a marker. Add fresh solder to each joint, then wick or pump it off and wiggle each leg free. Keep the legs long.</p><p>Leave in the box: IRLZ44N, LM393P, 150 Ω 5 W, XT30, 1000 µF. They were for the heater, which rev C dropped.</p>`,
    req:[
     {h:'Resistors, out of circuit (hold the body, not both leads)'},
     {m:'ohm', w:'220 Ω (red-red-brown)', e:'209–231 Ω'},
@@ -301,7 +376,7 @@ const STEPS = [
     {m:'eye', w:'cut edges', e:'no copper burr or flake touching the edge holes; file it smooth'},
     {m:'eye', w:'corner c1·r1', e:'marked on both sides'}
    ]},
-  {t:'IC socket (or MCP6002)', d:`<p>DIP-8 socket at <span class="k">c12–c15, r14 + r17</span>, notch pointing LEFT. Solder two opposite corners first, check it sits flat, then the rest. No socket? Solder the chip in at the very end (step 10) with a quick, cool iron, and do these checks on the bare pads instead.</p>`,
+  {t:'IC socket (or MCP6002)', d:`<p>DIP-8 socket at <span class="k">c12–c15, r14 + r17</span>, notch pointing LEFT. Solder two opposite corners first, check it sits flat, then the rest. No socket? Solder the chip in at the very end (step 11) with a quick, cool iron, and do these checks on the bare pads instead.</p>`,
    req:[
     {m:'beep', w:'each socket contact (probe into it from the top) ↔ its own pad underneath', e:'beep on all 8', f:`a pin that doesn't beep has a cold joint. Reheat it.`},
     {m:'beep', w:'neighbouring pins 1↔2, 2↔3, 3↔4, 5↔6, 6↔7, 7↔8', e:'no beep on any pair', f:'beep = solder bridge. Wick it off.'},
@@ -361,14 +436,32 @@ const STEPS = [
     {h:'Modules and FC'},
     {m:'beep', w:'every wire: module or FC pin ↔ its board pad, wiggling the wire while you probe', e:'steady beep on all 22', f:'flickers: broken strand or cold joint. Redo it now, because the landing will finish it off.'},
     {m:'beep', w:'SCL (c27·r9) ↔ SDA (c28·r9), SCL ↔ GND, SDA ↔ +3V3', e:'no beep on any', nets:['SCL','SDA','GND']},
-    {m:'beep', w:'BMP280 SDO ↔ BMP280 GND, on the module', e:'beep (address 0x76)'},
+    {m:'beep', w:'BMP280 #1 SDO ↔ BMP280 #1 GND, on the module', e:'beep (address 0x76)'},
     {m:'beep', w:'FC PB0 pin ↔ R3 top leg (c8·r13)', e:'beep', nets:['HB_ADC']},
     {m:'ohm', w:'FC +3V3 pad ↔ FC GND pad', e:'still no short. With the modules on it, it settles somewhere between a few kΩ and 20 kΩ.', f:'under 100 Ω: a module is wired backwards, or VIN touches GND.', nets:['+3V3','GND']}
    ]},
-  {t:'Chip in, power up, test', d:`<ol><li>Insert MCP6002, notch LEFT, dot at <span class="k">c12·r17</span>.</li><li>Power from the FC. Pin 7 (VREF) ≈ 1.65 V.</li><li>Turn RV3 until SENSE (TCRT pad <span class="k">c23·r21</span>) ≈ 1 V DC with the sensor 1–2 mm from a surface.</li><li>Press a fingertip on the TCRT5000: a ≈1 Hz wave at PB0 (serial plotter or <span class="k">HB_Tune</span>).</li><li>I²C scan: 0x40 SHT21, 0x76 BMP280, 0x57 MAX30100.</li></ol>`, test:true,
+  {t:'DHT-11, MQ-7 and BMP280 #2', d:`<p><b>Added 29 Oct.</b> Three new modules. The DHT-11 and the MQ-7 take power from the bus columns (+3.3 V column 25, GND column 26). Each sends one signal to a flight-controller pin that rev C left free: <b>DHT-11 DATA → PC6</b> and <b>MQ-7 AO → PB1</b>. Two bare wires run up columns 29 and 30 to two new FC pads next to SDA. In the KiCad schematic these are J6 pins 3 and 2.</p><p><b>DHT-11:</b> a 3-pin module (S, +, −) already has its pull-up. A bare 4-pin DHT-11 doesn't: pin 1 VCC, pin 2 DATA, pin 3 unused, pin 4 GND, plus a 10 kΩ resistor from DATA to VCC at the sensor.</p><p><b>MQ-7:</b> wire VCC, GND and AO, and leave DO unconnected. Its heater draws ≈100 mA from +3.3 V and the can gets warm, so mount it away from the snail, the SHT21 and the DHT-11.</p><p><b>BMP280 #2:</b> a second module on row 14, right under BMP280 #1, on the same +3.3 V, GND, SCL and SDA columns. Its short SDO wire goes to its own <b>VCC</b>, so it answers at <b>0x77</b>. BMP280 #1 keeps SDO → GND (0x76). 0x77 doesn't clash with the FC's own MS5611, which is on the other bus.</p>`,
+   req:[
+    {h:'Power off, before the modules are plugged in'},
+    {m:'beep', w:'DHT DATA pad (c27·r17) ↔ FC PC6 pad (c29·r9)', e:'beep', nets:['DHT_DATA']},
+    {m:'beep', w:'MQ-7 AO pad (c27·r19) ↔ FC PB1 pad (c30·r9)', e:'beep', nets:['MQ7_AO']},
+    {m:'beep', w:'slide down column 29 (DHT data) against column 28 (SDA), rows 9–15', e:'no beep anywhere', f:'these two bare wires run one hole apart. A bridge puts DHT pulses on the I²C bus.', nets:['DHT_DATA','SDA']},
+    {m:'beep', w:'DHT DATA ↔ MQ-7 AO, and each of them ↔ GND and ↔ +3V3', e:'no beep on any', nets:['DHT_DATA','MQ7_AO','GND','+3V3']},
+    {h:'Modules wired in, still power off'},
+    {m:'ohm', w:'MQ-7 VCC ↔ GND, on the module', e:'≈30–40 Ω. That is its heater, not a short.', f:'under 10 Ω: a short. OL: heater or wire broken.'},
+    {m:'ohm', w:'MQ-7 AO ↔ GND, on the module', e:'≈1 kΩ (load resistor "102") or ≈10 kΩ ("103"). Write that number into MQ7_RL_OHM in SensorTest.ino.', f:'≈0: AO shorted to GND.'},
+    {m:'ohm', w:'FC +3V3 pad ↔ FC GND pad', e:'now ≈30–40 Ω, because the MQ-7 heater sits across them. Use Ω mode: many meters beep below ~50 Ω, so a beep test gives a false alarm here.', f:'under 20 Ω: something besides the heater is shorted. Unplug the MQ-7: it must go back to kΩ.', nets:['+3V3','GND']},
+    {m:'ohm', w:'DHT DATA pad (c27·r17) ↔ +3V3', e:'≈4.7–10 kΩ (the pull-up)', f:'OL: no pull-up. Bare 4-pin sensor: add 10 kΩ DATA → VCC.', nets:['DHT_DATA','+3V3']},
+    {m:'beep', w:'BMP280 #2 SDO ↔ BMP280 #2 VCC, on the module', e:'beep (address 0x77)'},
+    {m:'beep', w:'BMP280 #2 SDO ↔ BMP280 #2 GND', e:'no beep (OL, or a module resistor of several kΩ)', f:'beeps: SDO on GND, so both modules would sit at 0x76 and clash.'},
+    {m:'beep', w:'BMP280 #2 pads: c25·r14 ↔ c26·r14, and c27·r14 ↔ c28·r14', e:'no beep (+3.3 V/GND and SCL/SDA not bridged)', nets:['+3V3','GND','SCL','SDA']},
+    {m:'beep', w:'CSB ↔ GND on both BMP280s', e:'no beep. CSB low at power-up switches the chip to SPI and it disappears from I²C.'}
+   ]},
+  {t:'Chip in, power up, test', d:`<ol><li>Insert MCP6002, notch LEFT, dot at <span class="k">c12·r17</span>.</li><li>Power from the FC. Pin 7 (VREF) ≈ 1.65 V.</li><li>Turn RV3 until SENSE (TCRT pad <span class="k">c23·r21</span>) ≈ 1 V DC with the sensor 1–2 mm from a surface.</li><li>Flash <b>firmware/tools/SensorTest</b> to the <b>flight controller</b> (<a href="#firmware">which code goes where ↓</a>). Open the Serial Monitor on the FC's USB-C at 115200.</li><li>Every line should say PASS. The I²C4 scan shows 0x40 SHT21, 0x57 MAX30100, 0x76 BMP280 #1 and 0x77 BMP280 #2. DHT-11 on PC6, MQ-7 on PB1 and the heartbeat on PB0 each get their own line.</li><li>Press key <span class="k">p</span>, open Tools → Serial Plotter, and put a fingertip on the TCRT5000: a ≈1 Hz wave on <span class="k">hb</span>.</li></ol>`, test:true,
    req:[
     {h:'Before power'},
-    {m:'beep', w:'FC +5V ↔ FC +3V3, and FC +3V3 ↔ GND', e:'no beep on either. Repeat it, it takes 10 seconds.', nets:['+5V','+3V3','GND']},
+    {m:'beep', w:'FC +5V ↔ FC +3V3', e:'no beep. Repeat it, it takes 10 seconds.', nets:['+5V','+3V3']},
+    {m:'ohm', w:'FC +3V3 ↔ FC GND', e:'≈30–40 Ω with the MQ-7 plugged in (its heater), kΩ without it', f:'under 20 Ω: short. Find it before powering.', nets:['+3V3','GND']},
     {m:'eye', w:'MCP6002', e:'notch LEFT, dot at c12·r17, all 8 legs inside the socket (none folded under)'},
     {h:'Powered from the FC'},
     {m:'v', w:'FC +5V pad → GND', e:'4.75–5.25 V', nets:['+5V']},
@@ -380,19 +473,31 @@ const STEPS = [
     {m:'v', w:'socket pin 1 (OUT) and FC PB0 → GND, sensor still', e:'1.2–2.1 V, the same on both', f:'pinned at 0 or 3.3 V: the amp is saturated. Wait 10 s for C11 to settle, then recheck R16 and R17.', nets:['OUT','HB_ADC']},
     {m:'v', w:'socket pin 3 → GND', e:`≈1.5 V, not 1.65. The meter's own 10 MΩ input pulls down the 1 MΩ R15. Pin 1 jumps while the probe is on: that's normal.`, nets:['HP_IN']},
     {m:'v', w:'SCL and SDA → GND, bus idle', e:'3.0–3.3 V', f:'1.8–2.6 V: the MAX30100 board pulls the bus toward 1.8 V. Remove its three 4.7 k pull-ups. Its pins tolerate 3.3 V, and the GY-21 and BMP280 keep the bus pulled up.', nets:['SCL','SDA']},
-    {m:'eye', w:'fingertip on the TCRT5000, PB0 on the serial plotter / HB_Tune', e:'a clean ≈1 Hz wave. On the meter, PB0 wobbles once per beat.'},
-    {m:'eye', w:'I²C scan', e:'0x40 SHT21 · 0x57 MAX30100 · 0x76 BMP280'}
+    {h:'New sensors, powered (wait 3 minutes for the MQ-7 heater)'},
+    {m:'v', w:'FC +3V3 pad → GND with the MQ-7 heating', e:'3.2–3.4 V, no more than 0.05 V below the reading without it', f:'sags below 3.2 V: bad contact on the 3.3 V wire or the X6 jumper; the heater draws ≈100 mA.', nets:['+3V3']},
+    {m:'v', w:'DHT-11 VCC pin and MQ-7 VCC pin → GND, on the modules', e:'3.2–3.4 V each'},
+    {m:'v', w:'DHT DATA pad (c27·r17) → GND, idle', e:'3.2–3.4 V (pulled high between readings)', f:'≈0 V: no pull-up, DATA on GND, or the FC is holding PC6 low (old HB_Tune did; flash SensorTest).', nets:['DHT_DATA']},
+    {m:'v', w:'MQ-7 AO pad (c27·r19) → GND, clean air', e:'about 0.02–1.5 V and always below 3.3 V. Breathe on it or hold an open hand-sanitiser bottle near it: it rises within seconds.', f:'stays at exactly 0: AO not connected or module unpowered (its LED is off).', nets:['MQ7_AO']},
+    {m:'v', w:'BMP280 #1 SDO and BMP280 #2 SDO → GND, on the modules', e:'#1: 0 V (address 0x76). #2: 3.2–3.4 V (address 0x77).', f:'both the same: one SDO wire is on the wrong pin and the two modules clash.'},
+    {m:'eye', w:'MQ-7 after 5 minutes', e:'power LED on; metal can warm, not hot (on 3.3 V it runs at ≈45 % heater power)'},
+    {h:'SensorTest output (USB-C, 115200)'},
+    {m:'eye', w:'fingertip on the TCRT5000, key p, Serial Plotter', e:'a clean ≈1 Hz wave on hb. On the meter, PB0 wobbles once per beat.'},
+    {m:'eye', w:'I²C scan', e:'I²C4: 0x40 SHT21 · 0x57 MAX30100 · 0x76 BMP280 #1 · 0x77 BMP280 #2. I²C1 (FC): 0x1C · 0x4A · 0x6A · 0x77'},
+    {m:'eye', w:'summary block', e:'0 FAIL. Cross-checks: BMP280 #1 vs #2 within 2 hPa, each vs MS5611 within 3 hPa, DHT-11 vs SHT21 within 3 °C'},
+    {h:'Flight firmware (after SensorTest passes)'},
+    {m:'eye', w:'flash firmware/SnailPulse_Flight, run ground/snailpulse_ground.py', e:'STATUS says fw 1.2; ENV shows box, both BMP280s, DHT and MQ-7 values and ok=0xF7 (bit 3, the heater NTC, stays clear on rev C)', f:'ok=0xD7: DHT-11 not read (bit 5). ok=0xB7: MQ-7 at 0 V or saturated (bit 6). ok=0xF5: BMP280 #1 missing (bit 1). ok=0x77: BMP280 #2 missing (bit 7).'}
    ]}
 ];
 const MODE = {beep:['BEEP','Continuity (buzzer)'], ohm:['Ω','Resistance'], v:['V⎓','DC volts'], diode:['DIODE','Diode test'], cap:['F','Capacitance'], eye:['LOOK','Look / feel, no meter']};
 let tab = {};
-let reqDone = new Set(); try{ reqDone = new Set(JSON.parse(localStorage.getItem('sp_req')||'[]')); }catch(e){}
+// 29 Oct: step 10 (new sensors) was inserted before the test step, so old step-10 ticks are dropped once.
+let reqDone = new Set(); try{ const r3 = localStorage.getItem('sp_req_v3'); reqDone = new Set(r3!==null ? JSON.parse(r3) : JSON.parse(localStorage.getItem('sp_req')||'[]').filter(id=>!id.startsWith('10.'))); }catch(e){}
 const reqItems = i => (STEPS[i].req||[]).filter(r=>!r.h);
 const reqCount = i => { const R=reqItems(i); return [R.filter((r,k)=>reqDone.has(`${i+1}.${k}`)).length, R.length]; };
 // ---------- helpers
 const $ = s=>document.querySelector(s);
 let view='top', sel=null, curStep=null, showX=true, showOff=true;
-let done = new Set(); try{ const v2 = localStorage.getItem('sp_done_v2'); done = v2!==null ? new Set(JSON.parse(v2)) : new Set(JSON.parse(localStorage.getItem('sp_done')||'[]').map(n=>n+1)); }catch(e){}
+let done = new Set(); try{ const v3 = localStorage.getItem('sp_done_v3'), v2 = localStorage.getItem('sp_done_v2'); done = v3!==null ? new Set(JSON.parse(v3)) : new Set((v2!==null ? JSON.parse(v2) : JSON.parse(localStorage.getItem('sp_done')||'[]').map(n=>n+1)).filter(n=>n!==10)); }catch(e){}
 const hc = (x,y)=>[OX + (view==='bot' ? (N-1-x) : x)*S, OY + y*S];
 const lab = (x,y)=>`c${x+1}·r${y+1}`;
 const esc = s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
@@ -476,10 +581,13 @@ function drawGhost(p){ // part outline seen from below
 }
 // ---------- off-board objects (top view only)
 const OFF = (()=>{ const X=OX+N*S+70; const o={
-  FC:{x:X, y:40, w:170, title:'FC · IntroBus_L', color:'#1e3a2c', pins:[['FC+5V','+5V_IS'],['FC3V3','+3V3_IS'],['FCGND','GND'],['FCSCL','PD12 · SCL4'],['FCSDA','PD13 · SDA4'],['PB0','PB0 · ADC']]},
+  FC:{x:X, y:40, w:170, title:'FC · IntroBus_L', color:'#1e3a2c', pins:[['FC+5V','+5V_IS'],['FC3V3','+3V3_IS'],['FCGND','GND'],['FCSCL','PD12 · SCL4'],['FCSDA','PD13 · SDA4'],['PB0','PB0 · ADC'],['FCPC6','PC6 · DHT-11'],['FCPB1','PB1 · ADC · MQ-7']]},
   SHT21:{x:X, y:236, w:150, title:'GY-21 · SHT21', color:'#2d4fa8', pins:[['SHTV','VIN'],['SHTG','GND'],['SHTC','SCL'],['SHTD','SDA']], note:'in the snail box air'},
-  BMP280:{x:X, y:356, w:150, title:'BMP280', color:'#6a2c91', pins:[['BMPV','VCC'],['BMPG','GND'],['BMPC','SCL'],['BMPD','SDA'],[null,'CSB'],[null,'SDO → GND']], note:'SDO to its own GND pin'},
+  BMP280:{x:X, y:356, w:150, title:'BMP280 #1 · 0x76', color:'#6a2c91', pins:[['BMPV','VCC'],['BMPG','GND'],['BMPC','SCL'],['BMPD','SDA'],[null,'CSB'],[null,'SDO → GND']], note:'SDO to its own GND pin'},
+  BMP280B:{x:X, y:0, w:150, title:'BMP280 #2 · 0x77', color:'#862e9c', pins:[['BMBV','VCC'],['BMBG','GND'],['BMBC','SCL'],['BMBD','SDA'],[null,'CSB'],[null,'SDO → VCC']], note:'SDO to its own VCC pin', step:NSTEP},
   MAX30100:{x:X, y:506, w:150, title:'GY-MAX30100', color:'#6a2c91', pins:[['MAXV','VIN'],['MAXC','SCL'],['MAXD','SDA'],[null,'INT'],[null,'IRD'],[null,'RD'],['MAXG','GND']], note:'backup pulse sensor'},
+  DHT11:{x:X, y:0, w:150, title:'DHT-11', color:'#1864ab', pins:[['DHTV','VCC (+)'],['DHTD','DATA (S)'],['DHTG','GND (−)']], note:'bare sensor: 10k DATA→VCC', step:NSTEP},
+  MQ7:{x:X, y:0, w:150, title:'MQ-7 module', color:'#5c4813', pins:[['MQV','VCC'],['MQG','GND'],[null,'DO (not used)'],['MQA','AO']], note:'warm can: away from snail', step:NSTEP},
   TCRT:{x:X, y:690, w:150, title:'TCRT5000 on the shell', color:'#111', pins:[['TCRC','C · collector'],['TCRK','K · cathode'],['TCRA','A · anode'],['TCRS','E · emitter']], note:'4-wire twisted cable'}
 }; let y=30; for(const k in o){ o[k].y=y; y+=36+o[k].pins.length*18+10+14; } return o; })();
 const OFF_H = (()=>{ let m=0; for(const k in OFF){ m=Math.max(m, OFF[k].y+36+OFF[k].pins.length*18+10); } return m+20; })();
@@ -493,7 +601,7 @@ function drawOff(){
       const bx=o.x+o.w-56, by=o.y+34; s+=`<rect x="${bx}" y="${by}" width="44" height="22" rx="3" fill="#161616"/><rect x="${bx+3}" y="${by+3}" width="16" height="16" rx="2" fill="#2e7bd6"/><circle cx="${bx+11}" cy="${by+11}" r="5" fill="#9cc6f2"/><rect x="${bx+25}" y="${by+3}" width="16" height="16" rx="2" fill="#050505"/><circle cx="${bx+33}" cy="${by+11}" r="5" fill="#2a2a2a"/>`;
       s+=`<text x="${bx+11}" y="${by+33}" text-anchor="middle" style="font-size:8px" fill="var(--muted)">LED</text><text x="${bx+33}" y="${by+33}" text-anchor="middle" style="font-size:8px" fill="var(--muted)">photo</text>`;
     } else {
-      s+=`<g class="dimmable" data-nets="${o.pins.filter(p=>p[0]).map(p=>L.pads.find(q=>q.id===p[0]).net).join(' ')}" data-step="${WSTEP}"><rect x="${o.x}" y="${o.y}" width="${o.w}" height="${h}" rx="5" fill="${o.color}" stroke="rgba(0,0,0,.4)"/>`;
+      s+=`<g class="dimmable" data-nets="${o.pins.filter(p=>p[0]).map(p=>L.pads.find(q=>q.id===p[0]).net).join(' ')}" data-step="${o.step||WSTEP}"><rect x="${o.x}" y="${o.y}" width="${o.w}" height="${h}" rx="5" fill="${o.color}" stroke="rgba(0,0,0,.4)"/>`;
       s+=`<text x="${o.x+o.w-8}" y="${o.y+18}" text-anchor="end" class="offlbl" fill="#fff" style="fill:#fff">${o.title}</text>`;
     }
     o.pins.forEach((p,i)=>{ const py=o.y+40+i*18; const dark=k!=='TCRT';
@@ -511,10 +619,11 @@ function drawWires(){
     let d;
     if(pd.id==='PB0'){ const top=8; d=`M${a[0]},${a[1]} C${a[0]},${top} ${a[0]+40},${top} ${a[0]+80},${top} L${b[0]-120},${top} C${b[0]-40},${top} ${b[0]-60},${b[1]} ${b[0]},${b[1]}`; }
     else { const mx=(a[0]+b[0])/2; d=`M${a[0]},${a[1]} C${a[0]+30},${a[1]+ (pd.group==='TCRT5000'?40:-6)} ${mx},${b[1]} ${b[0]},${b[1]}`; }
-    s+=`<g class="dimmable wire" data-nets="${pd.net}" data-pad="${pd.id}" data-step="${WSTEP}"><path d="${d}" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="4.6" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${col}" stroke-width="3.2" stroke-linecap="round"/></g>`;
+    s+=`<g class="dimmable wire" data-nets="${pd.net}" data-pad="${pd.id}" data-step="${pd.step}"><path d="${d}" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="4.6" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${col}" stroke-width="3.2" stroke-linecap="round"/></g>`;
   });
-  // BMP280 SDO to GND jumper on module
+  // SDO jumpers on the modules: #1 SDO -> GND (0x76), #2 SDO -> VCC (0x77, added 29 Oct)
   const o=OFF.BMP280; s+=`<path d="M${o.x+10},${o.y+40+5*18} C${o.x-12},${o.y+40+5*18} ${o.x-12},${o.y+40+18} ${o.x+10},${o.y+40+18}" fill="none" stroke="#222" stroke-width="2.2" class="dimmable" data-nets="GND" data-step="${WSTEP}"/>`;
+  const o2=OFF.BMP280B; s+=`<path d="M${o2.x+10},${o2.y+40+5*18} C${o2.x-16},${o2.y+40+5*18} ${o2.x-16},${o2.y+40} ${o2.x+10},${o2.y+40}" fill="none" stroke="#e03131" stroke-width="2.2" class="dimmable" data-nets="+3V3" data-step="${NSTEP}"/>`;
   return s;
 }
 // ---------- main render
@@ -550,14 +659,14 @@ function render(){
   // pads (wire entry points)
   let pads='';
   L.pads.forEach(pd=>{ const [x,y]=hc(pd.x,pd.y); const col=WIRE[pd.id]||'#888';
-    pads+=`<g class="dimmable padg" data-nets="${pd.net}" data-pad="${pd.id}" data-step="${WSTEP}" tabindex="0">${view==='top'?`<circle cx="${x}" cy="${y}" r="6" fill="${col}" stroke="#000" stroke-opacity=".5"/><circle cx="${x}" cy="${y}" r="2.4" fill="#d0d4d8"/>`:`<circle cx="${x}" cy="${y}" r="6.4" fill="var(--solder)" stroke="${col}" stroke-width="2"/>`}</g>`; });
+    pads+=`<g class="dimmable padg" data-nets="${pd.net}" data-pad="${pd.id}" data-step="${pd.step}" tabindex="0">${view==='top'?`<circle cx="${x}" cy="${y}" r="6" fill="${col}" stroke="#000" stroke-opacity=".5"/><circle cx="${x}" cy="${y}" r="2.4" fill="#d0d4d8"/>`:`<circle cx="${x}" cy="${y}" r="6.4" fill="var(--solder)" stroke="${col}" stroke-width="2"/>`}</g>`; });
   // pad group labels
   const grp={}; L.pads.forEach(p=>{(grp[p.group]=grp[p.group]||[]).push(p)});
   let gl='';
   for(const g in grp){ const ps=grp[g]; if(g==='FC'&&ps.length){ const main=ps.filter(p=>p.id!=='PB0'); const xs=main.map(p=>hc(p.x,p.y)[0]); const y=hc(0,main[0].y)[1];
       gl+=`<text x="${(Math.min(...xs)+Math.max(...xs))/2}" y="${y-11}" text-anchor="middle" class="lbl" font-weight="600" fill="#fff" paint-order="stroke" stroke="var(--board)" stroke-width="2.6">FC</text>`;
       const pb=hc(5,10); gl+=`<text x="${pb[0]+(view==='top'?10:-10)}" y="${pb[1]+3}" text-anchor="${view==='top'?'start':'end'}" class="lbl" font-weight="600" fill="#fff" paint-order="stroke" stroke="var(--board)" stroke-width="2.6">PB0 → FC</text>`; continue; }
-    const xs=ps.map(p=>hc(p.x,p.y)[0]); const y=hc(0,ps[0].y)[1]; const short={SHT21:'SHT21',BMP280:'BMP280',MAX30100:'MAX30100',TCRT5000:'TCRT5000 cable'}[g];
+    const xs=ps.map(p=>hc(p.x,p.y)[0]); const y=hc(0,ps[0].y)[1]; const short={SHT21:'SHT21',BMP280:'BMP280 #1',BMP280B:'BMP280 #2',MAX30100:'MAX30100',DHT11:'DHT-11',MQ7:'MQ-7',TCRT5000:'TCRT5000 cable'}[g];
     const lx = view==='top' ? Math.min(...xs)-10 : Math.max(...xs)+10;
     gl+=`<text x="${lx}" y="${y+3}" text-anchor="end" class="lbl" font-weight="600" fill="#fff" paint-order="stroke" stroke="var(--board)" stroke-width="2.6" style="${view==='bot'?'text-anchor:start':''}">${short}</text>`; }
   // parts
@@ -628,8 +737,8 @@ function setStep(i,silent){ curStep=i; buildSteps(); if(i===null||silent) return
   sel={type:'step',id:i+1}; applySel();
   $('#insp').innerHTML=`<h2>Step ${i+1}</h2><p>${esc(STEPS[i].t)}. Highlighted on the board: everything you add in this step.${i===3?' Flip to the bottom view to see the rails.':''}</p><p class="hint">When it's built, open the <b>Requirements</b> tab and ${i+1<STEPS.length?`don't start step ${i+2} until every check passes`:'every check must pass before the board goes into the satellite'}.</p>`; }
 $('#steps').addEventListener('click',e=>{
-  const cb=e.target.closest('input[data-done]'); if(cb){ const n=+cb.dataset.done; cb.checked?done.add(n):done.delete(n); try{localStorage.setItem('sp_done_v2',JSON.stringify([...done]))}catch(_){}; e.stopPropagation(); const st=cb.closest('.step'); st.classList.toggle('done',cb.checked); return; }
-  const rq=e.target.closest('input[data-req]'); if(rq){ const id=rq.dataset.req; rq.checked?reqDone.add(id):reqDone.delete(id); try{localStorage.setItem('sp_req',JSON.stringify([...reqDone]))}catch(_){};
+  const cb=e.target.closest('input[data-done]'); if(cb){ const n=+cb.dataset.done; cb.checked?done.add(n):done.delete(n); try{localStorage.setItem('sp_done_v3',JSON.stringify([...done]))}catch(_){}; e.stopPropagation(); const st=cb.closest('.step'); st.classList.toggle('done',cb.checked); return; }
+  const rq=e.target.closest('input[data-req]'); if(rq){ const id=rq.dataset.req; rq.checked?reqDone.add(id):reqDone.delete(id); try{localStorage.setItem('sp_req_v3',JSON.stringify([...reqDone]))}catch(_){};
     rq.closest('.rq').classList.toggle('ok',rq.checked); const st=rq.closest('.step'), i=+st.dataset.i, [ok,tot]=reqCount(i), c=st.querySelector('.cnt'); if(c){ c.textContent=`${ok}/${tot}`; c.classList.toggle('all',ok===tot); } return; }
   const tb=e.target.closest('[data-tab]'); if(tb){ const i=+tb.closest('.step').dataset.i; tab[i]=tb.dataset.tab; buildSteps(); const s=document.querySelector(`.step[data-i="${i}"]`); if(s) s.scrollIntoView({block:'nearest'}); return; }
   const wh=e.target.closest('.where[data-nets]'); if(wh){ sel={type:'nets',ids:wh.dataset.nets.split(' ')}; applySel(); $('#insp').innerHTML=`<h2>Probe points</h2><p>Lit on the board: ${sel.ids.map(n=>`<span style="color:${NETS[n].c};font-weight:600">${esc(NETS[n].name)}</span>`).join(' and ')}.</p><p class="hint">${esc(wh.textContent)}</p>`; return; }
@@ -669,11 +778,23 @@ const REF = [
  {h:'3296W trimmer — RV3 50 k', svg:`<svg viewBox="0 0 320 132"><g transform="translate(110,10)"><rect x="0" y="0" width="90" height="46" rx="4" fill="#2257b8"/><circle cx="16" cy="23" r="10" fill="#d2b15a" stroke="#8c6e22"/><path d="M9,23 h14" stroke="#6b5216" stroke-width="2.5"/><text x="58" y="27" text-anchor="middle" font-size="12" font-weight="700" fill="#eaf0ff">503</text>
    ${[0,1,2].map(i=>`<line x1="${25+i*20}" y1="46" x2="${25+i*20}" y2="80" stroke="#b5b9bd" stroke-width="2.6"/><text x="${25+i*20}" y="96" text-anchor="middle" font-size="10" font-weight="600" fill="var(--ink)">${i+1}</text>`).join('')}<text x="45" y="110" text-anchor="middle" font-size="8.5" fill="var(--muted)">2 = wiper (middle)</text></g></svg>`,
   body:`<p>Code <b class="mono">503</b> = 50 kΩ (<span class="mono">103</span> = 10 k, not this one). Used as a rheostat: the middle pin and one end go to GND (rows 25 + 26), the other end to SENSE (row 24). Orientation doesn't matter; it only flips which way you turn the screw.</p>`},
- {h:'Sensor modules', svg:'', body:`<p>All three sit off the board on 4 wires each. Read the pin names on each module's silkscreen; the board pads are labelled with names, not positions.</p><ul><li><b>GY-21 (SHT21)</b>: VIN · GND · SCL · SDA. Put it in the snail box air.</li><li><b>BMP280</b>: VCC · GND · SCL · SDA, plus a short wire from <b>SDO to its own GND</b> (address 0x76). Leave CSB unconnected; the module pulls it up.</li><li><b>GY-MAX30100</b>: VIN · GND · SCL · SDA. Its three 4.7 k pull-ups pull to 1.8 V. If SCL/SDA idle below 3.0 V (step 10 requirements), or the STM32 can't see 0x57, remove them.</li></ul><p style="font-size:13px;color:var(--muted)">Suggested wire colours: red +3.3 V, black GND, yellow SCL, blue SDA.</p>`},
+ {h:'Sensor modules', svg:'', body:`<p>All six sit off the board. Read the pin names on each module's silkscreen; the board pads are labelled with names, not positions.</p><ul><li><b>GY-21 (SHT21)</b>: VIN · GND · SCL · SDA. Put it in the snail box air. Address 0x40.</li><li><b>BMP280 ×2</b>: VCC · GND · SCL · SDA each. #1 (row 13): short wire from <b>SDO to its own GND</b> → address <b>0x76</b>. #2 (row 14, step 10): <b>SDO to its own VCC</b> → <b>0x77</b>. Leave CSB unconnected on both; the modules pull it up.</li><li><b>GY-MAX30100</b>: VIN · GND · SCL · SDA. Its three 4.7 k pull-ups pull to 1.8 V. If SCL/SDA idle below 3.0 V (step 11 requirements), or the STM32 can't see 0x57, remove them.</li><li><b>DHT-11</b> (step 10): VCC → +3.3 V, GND, DATA → <b>PC6</b>. 3-pin module = S / + / −, pull-up already on it. Bare 4-pin sensor, grille facing you: 1 VCC, 2 DATA, 3 unused, 4 GND, plus 10 kΩ DATA → VCC.</li><li><b>MQ-7 module</b> (step 10): VCC → +3.3 V, GND, AO → <b>PB1</b>, DO not connected. ≈100 mA heater, warm can.</li></ul><p style="font-size:13px;color:var(--muted)">Suggested wire colours: red +3.3 V, black GND, yellow SCL, blue SDA, teal DHT data, lime MQ-7 AO.</p>`},
  {h:'Multimeter basics for the Requirements tabs', svg:'', body:`<ul><li><b>Black probe in COM</b>, red in VΩ. Voltages: black on GND, red on the point.</li><li><b>BEEP / Ω / DIODE / F only with power off.</b> Unplug the FC first.</li><li>Touch the probe tips together first. Whatever Ω it shows (often 0.2–0.5 Ω) is the leads; subtract it.</li><li>Readings that <b>climb slowly</b> are capacitors charging. Wait for them to settle.</li><li>Resistance measured on the board can read lower than the part alone because other parts sit in parallel. The expected values in the tabs already account for that.</li><li>Your meter is a 10 MΩ load. Nodes fed through 1 MΩ (pin 3) read a bit low.</li></ul>`},
- {h:'Before you power it', svg:'', body:`<ol><li>Continuity: +3.3 V to GND must NOT beep (check at the FC pads).</li><li>+5 V to +3.3 V must NOT beep.</li><li>Socket pin 6 to pin 7 beeps; pin 8 to the FC +3V3 pad beeps; pin 4 to the FC GND pad beeps.</li><li>No bare trace touches the next hole over. Rows 14–17 under and around the socket are the tightest spot.</li><li>Electrolytic stripes face row 3.</li></ol>`}
+ {h:'Before you power it', svg:'', body:`<ol><li>+3.3 V to GND at the FC pads, Ω mode: kΩ without the MQ-7, ≈30–40 Ω with it (its heater). Lower than 20 Ω = short.</li><li>+5 V to +3.3 V must NOT beep.</li><li>Socket pin 6 to pin 7 beeps; pin 8 to the FC +3V3 pad beeps; pin 4 to the FC GND pad beeps.</li><li>No bare trace touches the next hole over. Rows 14–17 under and around the socket are the tightest spot.</li><li>Electrolytic stripes face row 3.</li></ol>`}
 ];
 $('#refgrid').innerHTML=REF.map(r=>`<div class="card"><h3>${r.h}</h3>${r.svg}${r.body}</div>`).join('');
+// IntroBus_L 2×20 (IntroSat.Platform guide p.5, view from above): [left fn, left pin, right pin, right fn]
+const IB = [['GND','GND','GND','GND'],['+3V3_IS','3V3','3V3','+3V3_IS'],['OPAMP_OUT','PE7','PB0','ADC'],['OPAMP_INM','PE8','PB1','ADC'],['OPAMP_INP','PE9','PB15','MOSI2'],
+  ['ADC / DFSDM_CKIN','PC0','PB14','MISO2'],['ADC / DFSDM_DATIN','PC1','PB10','SCK2'],['ADC / DFSDM_CKOUT','PC2_C','PE0','RX8 / A'],['ADC','PC3_C','PE1','TX8 / B'],['COMP_INM','PC4','PD9','RX3'],
+  ['COMP_OUT','PC5','PD8','TX3'],['HRTIM_CHA1','PC6','PB12','RX5'],['HRTIM_CHA2','PC7','PB13','TX5'],['COMP_INP','PB2','PD13','SDA4'],['DAC_EXT','PB9','PD12','SCL4'],
+  ['DAC_OUT1','PA4','CAN_H','CAN_H'],['DAC_OUT2','PA5','CAN_L','CAN_L'],['+5V_IS','5V','5V','+5V_IS'],['+3V3_IS','3V3','3V3','+3V3_IS'],['GND','GND','GND','GND']];
+const IBUSE = {PB0:['PB0','heartbeat HB_ADC (R3 / C3)'], PB1:['FCPB1','MQ-7 AO'], PC6:['FCPC6','DHT-11 DATA'], PD13:['FCSDA','I²C SDA (SHT21, 2× BMP280, MAX30100)'], PD12:['FCSCL','I²C SCL'],
+  '5V':['FC+5V','+5V pad (one of the two 5V pins)'], '3V3':['FC3V3','+3V3 pad (any 3V3 pin)'], 'GND':['FCGND','GND pad (any GND pin)']};
+$('#ibrows').innerHTML = IB.map((r,i)=>{ const uL=IBUSE[r[1]], uR=IBUSE[r[2]];
+  const sw=u=>u?`<span class="sw" style="background:${WIRE[u[0]]}"></span>`:'';
+  const lfn = uL && !['5V','3V3','GND'].includes(r[1]) ? `<span class="go">${sw(uL)}${esc(uL[1])} ←</span>` : esc(r[0]);
+  const rfn = uR ? (['5V','3V3','GND'].includes(r[2]) ? `${esc(r[3])} <span style="color:var(--muted)">· ${sw(uR)}any one</span>` : `<span class="go">→ ${sw(uR)}${esc(uR[1])}</span>`) : esc(r[3]);
+  return `<tr><td class="fn l">${lfn}</td><td class="pin${uL?' on':''}">${esc(r[1])}</td><td class="r">${i+1}</td><td class="pin${uR?' on':''}">${esc(r[2])}</td><td class="fn">${rfn}</td></tr>`; }).join('');
 buildSteps(); render();
 </script>
 

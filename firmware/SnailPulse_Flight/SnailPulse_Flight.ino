@@ -8,12 +8,12 @@
 //    * microSD over SDMMC2 with STM32SD (pins from the IntroSat guide)
 //  Added by SnailPulse:
 //    * heartbeat sampling (PB0, 50 Hz, timer interrupt) + beat detection
-//    * box environment: SHT21, BMP280, MAX30100 on I2C4; heater NTC on PB1
-//    * heater PWM on PC6 with software limits (hardware LM393 cutoff is separate)
+//    * box environment: SHT21, 2x BMP280 (0x76 + 0x77), MAX30100 on I2C4; DHT-11 on PC6; MQ-7 on PB1
+//    * (rev B only, SP_HEATER_ENABLED 1: heater NTC on PB1 + heater PWM on PC6)
 //    * binary packets (protocol.h) that each fit one 58-byte LoRa packet
 //
 //  Arduino IDE setup: Board "Generic STM32H7 Series", part "STM32H750VBTx",
-//  libraries: IntroStratLib, STM32SD (+FatFs). Upload via ST-Link (SWD).
+//  STM32 board package 2.12.0, libraries: IntroStratLib, STM32SD (+FatFs). Upload via ST-Link (SWD).
 // =====================================================================================
 #include <Wire.h>
 #include <STM32SD.h>
@@ -33,7 +33,13 @@
 using namespace IntroStratLib;
 
 // ------------------------------ buses / objects ------------------------------
-HardwareSerial RadioSerial(PIN_RADIO_RX, PIN_RADIO_TX);   // UART1 -> comm board
+// STM32 board package 3.x renamed the UART class from HardwareSerial to Uart.
+#if defined(STM32_CORE_VERSION_MAJOR) && (STM32_CORE_VERSION_MAJOR >= 3)
+typedef Uart FcSerial;
+#else
+typedef HardwareSerial FcSerial;
+#endif
+FcSerial RadioSerial(PIN_RADIO_RX, PIN_RADIO_TX);         // UART1 -> comm board
 TwoWire FcWire(PIN_I2C1_SDA, PIN_I2C1_SCL);               // I2C1 service bus
 TwoWire PayloadWire(PIN_I2C4_SDA, PIN_I2C4_SCL);          // I2C4 payload bus
 
@@ -43,10 +49,12 @@ LM75A   fcTemp(FcWire, ADDR_LM75A_FCM);
 FcBaro  baro(FcWire, ADDR_MS5611);
 
 SHT21    sht(PayloadWire, ADDR_SHT21);
-BMP280   bmp(PayloadWire, ADDR_BMP280);
+BMP280   bmp(PayloadWire, ADDR_BMP280);      // #1, SDO -> GND
+BMP280   bmp2(PayloadWire, ADDR_BMP280_B);   // #2, SDO -> VCC
 MAX30100 maxs(PayloadWire, ADDR_MAX30100);
+DHT11    dht(PIN_DHT11, DHT11_PERIOD_MS);
 
-RadioLink<HardwareSerial> radio(RadioSerial, RADIO_ACK_BYTE, RADIO_ACK_TIMEOUT_MS);
+RadioLink<FcSerial> radio(RadioSerial, RADIO_ACK_BYTE, RADIO_ACK_TIMEOUT_MS);
 HeartbeatDetector hb(HB_SAMPLE_HZ, HB_WAVE_DECIM);
 HeaterController heater(BOX_TARGET_C, HEATER_MAX_C);
 
@@ -60,6 +68,9 @@ static volatile uint8_t  hb_head = 0, hb_tail = 0;
 static volatile uint16_t ntc1_raw = 0;
 static volatile uint32_t isr_overruns = 0;
 static volatile uint8_t  ntc_div = 0;
+static volatile uint32_t mq7_sum = 0;          // MQ-7 raw ADC, summed at 5 Hz, emptied once a second
+static volatile uint16_t mq7_n = 0;
+static volatile uint32_t last_tick_us = 0;     // when the ISR last ran (DHT-11 reads right after it)
 HardwareTimer *sampleTimer;
 
 void onSampleTick() {
@@ -67,7 +78,12 @@ void onSampleTick() {
   uint16_t v = analogRead(PIN_HB_ADC);
   if (next != hb_tail) { hb_ring[hb_head] = v; hb_ring_t[hb_head] = millis(); hb_head = next; }
   else isr_overruns++;
+#if SP_HEATER_ENABLED
   if (++ntc_div >= 10) { ntc_div = 0; ntc1_raw = analogRead(PIN_NTC1_ADC); }   // 5 Hz
+#elif SP_HAS_MQ7
+  if (++ntc_div >= 10) { ntc_div = 0; mq7_sum += analogRead(PIN_MQ7_AO); mq7_n++; }   // 5 Hz
+#endif
+  last_tick_us = micros();
 }
 
 // ------------------------------ SD logging ------------------------------
@@ -94,7 +110,7 @@ void sdBegin() {
   snprintf(name, sizeof name, "TLM%03u.CSV", boot_count % 1000);
   tlmFile = SD.open(name, FILE_WRITE);
   if (hbFile) hbFile.println("t_ms,hb_adc");
-  if (tlmFile) tlmFile.println("t_ms,type,fields...");
+  if (tlmFile) tlmFile.println("t_ms,type,fields...  (ENV adds dht_t_c100,dht_rh_c100,mq7_mv,box2_press_pa,bmp2_t_c100 since fw 1.2)");
   if (!hbFile || !tlmFile) { sd_ok = false; sd_errors++; }
 }
 
@@ -119,6 +135,7 @@ void sdFlush() {
 // ------------------------------ state ------------------------------
 bool imu_ok = false, mag_ok = false, lm75_ok = false;
 float heater_c = NAN;
+uint16_t mq7_mv = 0xFFFF;      // 1 s average of MQ-7 AO, mV (0xFFFF = disabled / no data yet)
 uint8_t reset_cause = 0;
 uint32_t loop_max_ms = 0, ledOffAt = 0;
 uint32_t tSnail = 0, tBase = 0, tEnv = 0, tStatus = 0, tSlow = 0, tFlush = 0;
@@ -178,12 +195,20 @@ void sendEnv(uint32_t now) {
   p.heater_duty = heater.duty();
   p.heater_mode = heater.mode();
   p.max30100_ir = maxs.ok() ? maxs.ir() : 0;
-  p.sensors_ok = (sht.ok() ? 1 : 0) | (bmp.ok() ? 2 : 0) | (maxs.ok() ? 4 : 0) | (!isnan(heater_c) ? 8 : 0) | (sd_ok ? 16 : 0);
+  p.dht_t_c100 = dht.ok() ? c100(dht.temperature()) : -32768;
+  p.dht_rh_c100 = dht.ok() ? (uint16_t)(dht.humidity() * 100) : 0xFFFF;
+  p.mq7_mv = mq7_mv;
+  p.box2_press_pa = bmp2.ok() ? bmp2.pressure_pa() : 0;
+  p.bmp2_t_c100 = bmp2.ok() ? c100(bmp2.temperature()) : -32768;
+  bool mq7_ok = mq7_mv != 0xFFFF && mq7_mv > 5 && mq7_mv < 3290;   // 0 V = wire off, 3.3 V = saturated
+  p.sensors_ok = (sht.ok() ? 1 : 0) | (bmp.ok() ? 2 : 0) | (maxs.ok() ? 4 : 0) | (!isnan(heater_c) ? 8 : 0) | (sd_ok ? 16 : 0)
+               | (dht.ok() ? 32 : 0) | (mq7_ok ? 64 : 0) | (bmp2.ok() ? 128 : 0);
   radio.send(sp::PKT_ENV, &p, sizeof p);
-  char line[112];
-  snprintf(line, sizeof line, "%lu,ENV,%d,%u,%lu,%d,%d,%u,%u,%u,%u", (unsigned long)now, p.box_t_c100, p.box_rh_c100,
+  char line[160];
+  snprintf(line, sizeof line, "%lu,ENV,%d,%u,%lu,%d,%d,%u,%u,%u,%u,%d,%u,%u,%lu,%d", (unsigned long)now, p.box_t_c100, p.box_rh_c100,
            (unsigned long)p.box_press_pa, p.bmp_t_c100, p.heater_t_c100, p.heater_duty, p.heater_mode,
-           p.max30100_ir, p.sensors_ok);
+           p.max30100_ir, p.sensors_ok, p.dht_t_c100, p.dht_rh_c100, p.mq7_mv,
+           (unsigned long)p.box2_press_pa, p.bmp2_t_c100);
   sdLogLine(line);
 }
 
@@ -195,7 +220,7 @@ void sendStatus(uint32_t now) {
   p.frames_sent = radio.sent();
   p.acks_missed = radio.missed_acks();
   p.frames_dropped = radio.dropped();
-  p.i2c_errors = sht.errors + bmp.errors + maxs.errors + baro.errors;
+  p.i2c_errors = sht.errors + bmp.errors + bmp2.errors + maxs.errors + baro.errors;   // DHT-11 health: ENV sensors_ok bit 5
   p.sd_errors = sd_errors;
   p.loop_max_ms = (uint16_t)(loop_max_ms > 65535 ? 65535 : loop_max_ms);
   p.reset_cause = reset_cause;
@@ -206,10 +231,12 @@ void sendStatus(uint32_t now) {
 // ------------------------------ setup / loop ------------------------------
 void setup() {
   // heater OFF first (R12 already holds the gate low during reset)
+#if SP_HEATER_ENABLED
   pinMode(PIN_HEATER_PWM, OUTPUT);
   digitalWrite(PIN_HEATER_PWM, LOW);
   analogWriteResolution(8);
   analogWriteFrequency(HEATER_PWM_HZ);
+#endif
   pinMode(PIN_USER_LED, OUTPUT);
 
   if (IWatchdog.isReset(true)) reset_cause = 1;
@@ -230,7 +257,11 @@ void setup() {
   PayloadWire.setClock(100000);
   sht.begin();
   bmp.begin();
+  bmp2.begin();
   maxs.begin();      // backup sensor - flight continues without it
+#if SP_HAS_DHT11
+  dht.begin(millis());
+#endif
 
   sdBegin();
 
@@ -259,17 +290,33 @@ void loop() {
 
   // 2) non-blocking sensors
   sht.poll(now);
+#if SP_HAS_DHT11
+  dht.poll(now, micros() - last_tick_us < 4000);   // >= 16 ms until the next 50 Hz tick
+#endif
   baro.poll(now);
 
   // 3) once a second: slow sensors + heater control
   if (now - tSlow >= 1000) {
     float dt = (tSlow == 0) ? 1.0f : (now - tSlow) / 1000.0f;
     tSlow = now;
+#if SP_HEATER_ENABLED
     heater_c = ntc_celsius(ntc1_raw, (1u << ADC_BITS) - 1, NTC_R_FIXED, NTC_R25, NTC_BETA);
+#endif
     if (!bmp.ok() && bmp.errors < 100) bmp.begin(); else if (bmp.ok()) bmp.read();
+    if (!bmp2.ok() && bmp2.errors < 100) bmp2.begin(); else if (bmp2.ok()) bmp2.read();
     if (maxs.ok()) maxs.read();
+#if SP_HEATER_ENABLED
     float box = sht.ok() ? sht.temperature() : NAN;
     analogWrite(PIN_HEATER_PWM, heater.update(box, heater_c, dt));
+#else
+    (void)dt;   // no heater on rev C: heater_c stays NAN, duty and mode stay 0
+#endif
+#if SP_HAS_MQ7
+    noInterrupts();
+    uint32_t s = mq7_sum; uint16_t n = mq7_n; mq7_sum = 0; mq7_n = 0;
+    interrupts();
+    if (n) mq7_mv = (uint16_t)((s / n) * 3300UL / ((1u << ADC_BITS) - 1));
+#endif
   }
 
   // 4) telemetry schedule
