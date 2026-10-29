@@ -139,3 +139,58 @@ bool MAX30100::read() {
   ok_ = true;
   return true;
 }
+
+// ============================ DHT-11 ============================
+#include "dht11_decode.h"
+
+// Time spent at 'level' in microseconds, or -1 if it lasts longer than timeout_us.
+static int32_t dht_wait(uint32_t pin, int level, uint32_t timeout_us) {
+  uint32_t t0 = micros();
+  while (digitalRead(pin) == level) {
+    if (micros() - t0 > timeout_us) return -1;
+  }
+  return (int32_t)(micros() - t0);
+}
+
+void DHT11::begin(uint32_t now) {
+  pinMode(pin_, INPUT_PULLUP);   // idle HIGH; the module's own pull-up does the real work
+  state_ = 0;
+  t0_ = now;                     // first reading one period after boot (sensor needs >= 1 s)
+}
+
+// 0 = ok, 1 = no response, 2 = lost in the handshake, 3 = lost in the data bits
+int8_t DHT11::read_bits(uint8_t *bytes) {
+  uint8_t hi[40];
+  pinMode(pin_, INPUT_PULLUP);                                    // end of the start signal
+  if (dht_wait(pin_, HIGH, 250) < 0) return 1;                    // sensor answers after 20-40 us
+  if (dht_wait(pin_, LOW, 150) < 0 || dht_wait(pin_, HIGH, 150) < 0) return 2;   // 80 us + 80 us
+  for (uint8_t i = 0; i < 40; i++) {
+    if (dht_wait(pin_, LOW, 120) < 0) return 3;                   // 50 us before every bit
+    int32_t h = dht_wait(pin_, HIGH, 150);                        // 26-28 us = 0, 70 us = 1
+    if (h < 0) return 3;
+    hi[i] = (uint8_t)(h > 255 ? 255 : h);
+  }
+  dht11_bits_to_bytes(hi, bytes);
+  return 0;
+}
+
+void DHT11::poll(uint32_t now, bool quiet) {
+  if (state_ == 0) {                                              // idle: time for a new reading?
+    if (now - t0_ < period_) return;
+    pinMode(pin_, OUTPUT);
+    digitalWrite(pin_, LOW);                                      // start signal (>= 18 ms)
+    t0_ = now; state_ = 1;
+    return;
+  }
+  // start signal running. Read once it has lasted 20 ms and the sampling ISR just ran;
+  // after 60 ms read anyway so a slow loop pass can't hold the sensor low forever.
+  if (now - t0_ < 20) return;
+  if (!quiet && now - t0_ < 60) return;
+  uint8_t d[5];
+  float t, rh;
+  bool good = read_bits(d) == 0 && dht11_decode(d, t, rh);
+  pinMode(pin_, INPUT_PULLUP);
+  state_ = 0; t0_ = now;
+  if (good) { t_ = t; rh_ = rh; ok_ = true; fails_ = 0; }
+  else { errors++; if (++fails_ >= 3) ok_ = false; }
+}

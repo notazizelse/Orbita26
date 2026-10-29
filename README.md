@@ -74,10 +74,10 @@ SnailPulse doesn't replace any platform board. It adds one payload board and our
 
 | Our plug | Goes to | Signals |
 |---|---|---|
-| **J6** (5-pin) | IntroBus_L | PB0 heartbeat ADC · PB1 heater thermistor · PC6 heater PWM · PD12/PD13 I²C4 |
+| **J6** (5-pin) | IntroBus_L | PB0 heartbeat ADC · PB1 MQ-7 AO (rev B: heater thermistor) · PC6 DHT-11 data (rev B: heater PWM) · PD12/PD13 I²C4 |
 | **J5** (3-pin) | IntroBus_L | +5V_IS · +3V3_IS · GND |
 | **J2** (XT30) | Power module X8 | 14.8 V for the heater only (red +, black −) |
-| **J7 / J8 / J9** | SHT21 · BMP280 · MAX30100 | I²C4 at 0x40 · 0x76 · 0x57 |
+| **J7 / J8 / J9** | SHT21 · BMP280 · MAX30100 | I²C4 at 0x40 · 0x77 (SDO → VCC) · 0x57 |
 
 Data path: PB0 is sampled at 50 Hz in a timer interrupt → beat detector → binary packet → UART1 → communication board → LoRa 433 MHz → ground LoRa-UART module → `ground/snailpulse_ground.py`. The full story, with the pin table, power budget and failure handling, is in [docs/Firmware_and_Integration.md](docs/Firmware_and_Integration.md).
 
@@ -146,7 +146,7 @@ The flight controller sends four binary packet types. Each fits in one 58-byte L
 |---|---|---|
 | SNAIL | 2 s | heart rate, last beat interval, beat count, signal quality, 2 s of waveform at 10 Hz |
 | BASE | 2 s | flight-controller sensors: pressure, ISA altitude, accel, gyro, magnetometer, board temperature |
-| ENV | 4 s | box temperature, humidity and pressure, heater temperature and duty, sensor status |
+| ENV | 4 s | box temperature, humidity and pressure (SHT21, BMP280), DHT-11 temperature/humidity, MQ-7 gas level, sensor status |
 | STATUS | 10 s | firmware version, boot count, radio and I²C/SD error counters, watchdog resets |
 
 Total is about 435 bit/s, 18 % of the 2.4 kbit/s link. Everything is also logged to microSD at full rate.

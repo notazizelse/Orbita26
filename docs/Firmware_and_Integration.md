@@ -46,8 +46,8 @@ From the pinout table in the IntroSat guide, matched to our connectors J5 (power
 | Our plug | Pin | Net | IntroBus_L / FCM pin | Pin function on the STM32 | Used for |
 |---|---|---|---|---|---|
 | J6 | 1 | HB_ADC | **PB0** | ADC | Heartbeat amplifier output |
-| J6 | 2 | NTC1_ADC | **PB1** | ADC | Heater thermistor TH1 for the firmware |
-| J6 | 3 | PWM | **PC6** | HRTIM_CHA1 / timer PWM | Heater MOSFET gate (through R11) |
+| J6 | 2 | NTC1_ADC → **MQ7_AO** | **PB1** | ADC | Rev B: heater thermistor TH1. Rev C + fw 1.2: MQ-7 analog out |
+| J6 | 3 | PWM → **DHT_DATA** | **PC6** | HRTIM_CHA1 / GPIO | Rev B: heater MOSFET gate (through R11). Rev C + fw 1.2: DHT-11 data |
 | J6 | 4 | SCL | **PD12** | SCL4 | I²C4 clock to SHT21, BMP280, MAX30100 |
 | J6 | 5 | SDA | **PD13** | SDA4 | I²C4 data |
 | J5 | 1 | +5V | +5V_IS | — | LED driver R1, LM393 comparator U5 |
@@ -126,7 +126,8 @@ The order matters, so here it is step by step:
 void onSampleTick() {                      // runs 50 times per second
   v = analogRead(PB0);                     // heartbeat
   put (v, millis()) into a 128-slot ring buffer
-  every 10th tick: ntc1_raw = analogRead(PB1);   // heater thermistor at 5 Hz
+  every 10th tick: mq7_sum += analogRead(PB1);   // MQ-7 at 5 Hz (rev B: heater thermistor)
+  last_tick_us = micros();                 // the DHT-11 reads right after a tick
 }
 ```
 
@@ -219,8 +220,10 @@ A known limit, documented in the schematic review: if the TH2 wire breaks, the c
 | Sensor | Bus / address | Driver | Notes |
 |---|---|---|---|
 | SHT21 (GY-21) | I²C4 · 0x40 | ours, non-blocking state machine | Box air temperature and humidity. The heater controller's main input. |
-| BMP280 | I²C4 · 0x76 (SDO → GND via J8.5) | ours, Bosch integer formulas | Box pressure. Range 300–1100 hPa, which is fine inside a sealed box. If it drops out, it is re-initialised once a second (up to 100 errors). |
+| BMP280 | I²C4 · 0x77 (SDO → VCC since 29 Oct) | ours, Bosch integer formulas | Box pressure. Range 300–1100 hPa, which is fine inside a sealed box. If it drops out, it is re-initialised once a second (up to 100 errors). |
 | MAX30100 | I²C4 · 0x57 | ours, IR only | Backup optical pulse signal; raw IR in the ENV packet. Many boards pull I²C up to 1.8 V: if it won't answer, remove its 4.7 kΩ pull-ups. |
+| DHT-11 (added 29 Oct) | GPIO · PC6 | ours (`DHT11` in `payload_sensors`, decoding in `dht11_decode.h`) | Second box temperature/humidity, ±2 °C / ±5 %RH, read every 2 s. The 20 ms start signal is non-blocking; the ~5 ms bit read starts right after the 50 Hz ISR so the interrupt can't stretch a bit. A bad checksum is just retried; 3 failures in a row clear its OK bit. |
+| MQ-7 (added 29 Oct) | ADC · PB1 | ours, sampled in the ISR at 5 Hz | CO-sensitive tin-oxide sensor. ENV carries the 1 s average of AO in mV. On 3.3 V its heater runs at ~45 % power, so the reading shows changes, not calibrated ppm. Keep its warm can away from the snail and the SHT21. |
 | MS5611 (on the FCM) | I²C1 · 0x77 | ours (`fc_baro.h`) | Outside pressure down to 10 mbar. Altitude uses the full ISA model, valid above 11 km (at 30 mbar the simple formula says 21.7 km, ISA says 23.9 km). |
 | LSM6DS3, LIS3MDL, LM75A (FCM) | I²C1 | IntroStratLib | Acceleration, rotation, magnetic field, board temperature for the BASE packet. |
 
@@ -249,7 +252,7 @@ The guide also recommends sending raw binary numbers instead of text. A text lin
 |---|---|---|---|
 | `0x10` SNAIL | 2 s | 46 B | bpm × 10, last interval, beat count, quality, flags (beat seen / clipped / no signal), pulse amplitude, DC level, **20 waveform samples** |
 | `0x01` BASE | 2 s | 41 B | MS5611 pressure, temperature, ISA altitude; acceleration, rotation, magnetic field; FCM board temperature |
-| `0x11` ENV | 4 s | 31 B | box T and RH (SHT21), box pressure (BMP280), heater plate temperature, PWM duty, heater mode, MAX30100 IR, sensor-OK bits |
+| `0x11` ENV | 4 s | 37 B | box T and RH (SHT21), box pressure (BMP280), MAX30100 IR, sensor-OK bits, DHT-11 T and RH, MQ-7 mV (fw 1.2; the heater fields are empty on rev C) |
 | `0x7F` STATUS | 10 s | 31 B | firmware version, boot count, frames sent / un-ACKed / dropped, I²C and SD errors, worst loop time, watchdog-reset flag |
 
 Average load: 23 + 20.5 + 7.75 + 3.1 ≈ **54 bytes/s ≈ 0.43 kbit/s**, about 18 % of the 2.4 kbit/s air rate. The spare capacity absorbs retries and slow ACKs.
@@ -294,6 +297,8 @@ The heartbeat lines are collected in a 1.5 kB RAM buffer and written in blocks. 
 | SHT21 dies | Heater switches to mode 2 (plate at 25 °C) | ENV: sensors-OK bit 0 cleared, heater mode 2 |
 | SHT21 and TH1 die | Mode 3, 20 % blind heating; LM393 still armed | ENV: mode 3 |
 | BMP280 or MAX30100 dies | Flight continues; BMP280 is retried | ENV: sensors-OK bits 1 / 2 cleared |
+| DHT-11 stops answering | Retried every 2 s; flight continues | ENV: bit 5 cleared, DHT fields n/a |
+| MQ-7 wire off or saturated | Value still sent | ENV: bit 6 cleared (AO below 5 mV or above 3.29 V) |
 | I²C bus locks up | `loop()` stalls → watchdog reset in 4 s | STATUS: boot count +1, reset cause 1 |
 | SD card missing or full | Logging stops; radio continues | ENV: SD bit cleared; STATUS: SD errors |
 | Comm board ACK lost | Sends the next frame after 1.5 s | STATUS: acks_missed rises |
@@ -325,9 +330,9 @@ This checks the CRC, the frame parser (including corrupted frames), the beat det
 1. Power module with the 12 V supply, payload channels on (X6 jumpers), antenna connected before any transmission.
 2. Flash `tools/HB_Tune`. Hold the TCRT5000 over the snail's heart, measure SENSE (J1 pin 4) to GND and turn **RV3** until it reads about 0.8–2.0 V. Wait ~5 s after each turn for the high-pass to settle. Open the Serial Plotter: a slow regular wave every 1–10 s should appear.
 3. Set **RV2** so its wiper reads ≈ 1.1 V (≈ 40 °C cutoff). Warm TH2 with your fingers or a hair dryer and confirm the heater switches off.
-4. Flash `SnailPulse_Flight`. Start the ground script. Check that a STATUS packet arrives, then that the ENV sensors-OK bits are all set.
+4. Flash `SnailPulse_Flight`. Start the ground script. Check that a STATUS packet arrives and says fw 1.2, then that the ENV sensors-OK bits read 0x77 (rev C: no heater NTC, so bit 3 stays clear).
 5. Long run: the full stack in a freezer for ~3 hours, watching box temperature, heater duty and heart rate on the ground screen.
 
 ### 13.4 Not yet verified on real hardware
 
-The sketch passes a syntax check against the real IntroStratLib headers and the PC tests pass, but it has **not been compiled for the STM32 or run on the flight controller yet**. Step 4 above is the first real test. Things to watch on that first run: `analogRead()` inside the timer interrupt (STM32duino's version is slow but works; if `loop_max_ms` or ISR overruns look wrong, move sampling to ADC + DMA), the comm board actually returning 0x06, and the MAX30100's 1.8 V pull-ups.
+Firmware 1.2 compiles for the STM32H750 (board package 2.12.0) and the PC tests pass, but it has **not run on the flight controller yet**. The DHT-11 read and the MQ-7 sampling are new in 1.2 and are part of that first run. Step 4 above is the first real test. Things to watch on that first run: `analogRead()` inside the timer interrupt (STM32duino's version is slow but works; if `loop_max_ms` or ISR overruns look wrong, move sampling to ADC + DMA), the comm board actually returning 0x06, and the MAX30100's 1.8 V pull-ups.

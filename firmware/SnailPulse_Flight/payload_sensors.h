@@ -1,4 +1,4 @@
-// Payload I2C sensors on I2C4 (PD13/PD12): SHT21, BMP280, MAX30100 (backup)
+// Payload sensors: SHT21, BMP280, MAX30100 (backup) on I2C4 (PD13/PD12), DHT-11 on a GPIO
 // Small self-contained drivers so the flight code does not depend on extra libraries.
 #pragma once
 #include <Arduino.h>
@@ -22,10 +22,11 @@ class SHT21 {
   bool ok_ = false; float t_ = NAN, rh_ = NAN;
 };
 
-// ---- BMP280 (address 0x76 because SDO -> GND), normal mode, Bosch integer compensation
+// ---- BMP280 (address 0x77 because SDO -> VCC since 29 Oct; 0x76 with SDO -> GND), normal mode,
+// Bosch integer compensation
 class BMP280 {
  public:
-  explicit BMP280(TwoWire &w, uint8_t addr = 0x76) : w_(w), addr_(addr) {}
+  explicit BMP280(TwoWire &w, uint8_t addr = 0x77) : w_(w), addr_(addr) {}
   bool begin();
   bool read();                 // updates pressure / temperature
   bool ok() const { return ok_; }
@@ -55,6 +56,27 @@ class MAX30100 {
  private:
   TwoWire &w_; uint8_t addr_;
   bool ok_ = false; uint16_t ir_ = 0;
+};
+
+// ---- DHT-11 (temperature + humidity) on one GPIO, added 29 Oct 2026.
+// Non-blocking start signal (pin held LOW >= 20 ms across several loop passes), then a ~5 ms
+// blocking read of the 40 bits. poll() starts that read only when 'quiet' is true, i.e. the
+// 50 Hz sampling interrupt has just run and will not cut into the bit timing.
+class DHT11 {
+ public:
+  DHT11(uint32_t pin, uint32_t period_ms) : pin_(pin), period_(period_ms) {}
+  void begin(uint32_t now_ms);
+  void poll(uint32_t now_ms, bool quiet);
+  bool ok() const { return ok_; }           // false after 3 failed reads in a row
+  float temperature() const { return t_; }  // C, last good reading
+  float humidity() const { return rh_; }    // %RH, last good reading
+  uint16_t errors = 0;
+ private:
+  int8_t read_bits(uint8_t *bytes);
+  uint32_t pin_, period_;
+  uint8_t state_ = 0, fails_ = 0;
+  uint32_t t0_ = 0;
+  bool ok_ = false; float t_ = NAN, rh_ = NAN;
 };
 
 uint8_t i2c_read_reg(TwoWire &w, uint8_t addr, uint8_t reg, uint8_t *buf, uint8_t n);

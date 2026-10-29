@@ -14,6 +14,7 @@
 #include "bmp280_comp.h"
 #include "ms5611_comp.h"
 #include "radio.h"
+#include "dht11_decode.h"
 
 static int fails = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -161,6 +162,38 @@ static void test_sensors() {
   CHECK(fabsf(a1) < 1 && fabsf(a2 - 11000) < 5 && fabsf(a3 - 23850) < 150, "isa");
 }
 
+// ---------------------------------------------------------------- DHT-11
+// Builds the 40 HIGH-pulse widths the sensor would send for 5 bytes (0 -> 27 us, 1 -> 70 us).
+static void dht_pulses(const uint8_t *bytes, uint8_t *hi) {
+  for (int i = 0; i < 40; i++) hi[i] = ((bytes[i / 8] >> (7 - i % 8)) & 1) ? 70 : 27;
+}
+static void test_dht11() {
+  uint8_t frame[5] = {55, 0, 23, 4, (uint8_t)(55 + 0 + 23 + 4)};   // 55 %RH, 23.4 C
+  uint8_t hi[40], got[5];
+  dht_pulses(frame, hi);
+  dht11_bits_to_bytes(hi, got);
+  CHECK(memcmp(frame, got, 5) == 0, "dht bits -> bytes");
+  float t = 0, rh = 0;
+  CHECK(dht11_decode(got, t, rh) && fabsf(t - 23.4f) < 0.01f && fabsf(rh - 55.0f) < 0.01f, "dht decode %.2f %.2f", t, rh);
+  // jitter: a 0 stretched to 40 us or a 1 shortened to 52 us still decodes
+  // (55 = 0b00110111: bit index 0 is a 0, index 2 is a 1)
+  CHECK(hi[0] == 27 && hi[2] == 70, "test setup");
+  hi[0] = 40; hi[2] = 52;
+  dht11_bits_to_bytes(hi, got);
+  CHECK(memcmp(frame, got, 5) == 0, "dht tolerates jitter");
+  // a 0 stretched past the threshold flips a bit -> checksum catches it
+  // (index 24 = top bit of the T decimal byte 4 = 0b00000100, a 0)
+  dht_pulses(frame, hi); CHECK(hi[24] == 27, "test setup"); hi[24] = 80;
+  dht11_bits_to_bytes(hi, got);
+  CHECK(!dht11_decode(got, t, rh), "dht checksum catches a flipped bit");
+  uint8_t neg[5] = {40, 0, 5, 0x82, (uint8_t)(40 + 5 + 0x82)};   // -5.2 C (sign bit on newer parts)
+  CHECK(dht11_decode(neg, t, rh) && fabsf(t + 5.2f) < 0.01f, "dht negative %.2f", t);
+  uint8_t zero[5] = {0, 0, 0, 0, 0};
+  CHECK(!dht11_decode(zero, t, rh), "dht all-zero frame (line stuck low) rejected");
+  uint8_t silly[5] = {150, 0, 20, 0, (uint8_t)170};
+  CHECK(!dht11_decode(silly, t, rh), "dht RH > 100 rejected");
+}
+
 // ---------------------------------------------------------------- radio queue
 struct FakeStream {
   std::vector<uint8_t> tx, rx;
@@ -188,7 +221,9 @@ static void test_radio() {
   sp::SnailPayload sn = {}; sn.t_ms = 5000; sn.bpm_x10 = 245; sn.quality = 77; sn.wave_n = 20;
   for (int i = 0; i < 20; i++) sn.wave[i] = (uint8_t)(128 + 40 * sinf(i * 0.6f));
   sp::EnvPayload en = {}; en.t_ms = 6000; en.box_t_c100 = 1987; en.box_rh_c100 = 6543; en.box_press_pa = 101100;
-  en.heater_t_c100 = 2950; en.heater_duty = 120; en.heater_mode = 1; en.sensors_ok = 0x1F;
+  en.heater_t_c100 = -32768; en.heater_duty = 0; en.heater_mode = 0; en.sensors_ok = 0x77;
+  en.dht_t_c100 = 2100; en.dht_rh_c100 = 5500; en.mq7_mv = 412;
+  CHECK(sizeof en == 30 && sp::ENV_V1_SIZE == 24, "ENV size %zu", sizeof en);
   sp::BasePayload ba = {}; ba.t_ms = 7000; ba.press_pa = 3000; ba.baro_t_c100 = -1234; ba.alt_dm = 238500; ba.acc_mg[2] = 1000;
   sp::StatusPayload st = {}; st.t_ms = 8000; st.fw_version = 0x0100; st.boot_count = 3;
   uint8_t fr[64]; size_t n;
@@ -197,6 +232,7 @@ static void test_radio() {
   n = sp::build_frame(sp::PKT_ENV, 2, &en, sizeof en, fr); fwrite(fr, 1, n, f);
   n = sp::build_frame(sp::PKT_BASE, 3, &ba, sizeof ba, fr); fwrite(fr, 1, n, f);
   n = sp::build_frame(sp::PKT_STATUS, 4, &st, sizeof st, fr); fwrite(fr, 1, n, f);
+  n = sp::build_frame(sp::PKT_ENV, 5, &en, sp::ENV_V1_SIZE, fr); fwrite(fr, 1, n, f);   // fw 1.1 frame
   fclose(f);
 }
 
@@ -205,6 +241,7 @@ int main() {
   test_heartbeat();
   test_thermal();
   test_sensors();
+  test_dht11();
   test_radio();
   printf(fails ? "\n%d CHECK(S) FAILED\n" : "\nALL TESTS PASSED\n", fails);
   return fails ? 1 : 0;
