@@ -107,9 +107,14 @@ The final runs from **26 October to 1 November 2026** at Bauman Moscow State Tec
 
 ## Repository
 
+**Start here:** [HANDOFF.md](HANDOFF.md) (where the work stands and what's next) · [docs/Software_Setup.md](docs/Software_Setup.md) (install and flash on macOS/Windows, also from Russia) · [CLAUDE.md](CLAUDE.md) (project rules, pins, build and test commands) · [hardware/perfboard/SnailPulse_perfboard_build.html](hardware/perfboard/SnailPulse_perfboard_build.html) (build guide).
+
 ```
 Orbita26/
 ├── README.md                     ← you are here
+├── HANDOFF.md                    current state + next steps
+├── CLAUDE.md                     rules, pins, build/test commands
+├── firmware/build_backup/        prebuilt .bin files (SensorTest, HB_Tune, flight fw 1.2)
 ├── International_tournament_Orbita_Schedule_EN.pdf   final programme      (new)
 ├── Письмо ЦИКЕНО Узбекистан.pdf  organizers' confirmation letter          (new)
 ├── russia team.pdf               delegation list                         (new)

@@ -10,6 +10,7 @@ fp-info-cache
 # Arduino / build
 build/
 *.bin
+!firmware/build_backup/*.bin
 *.elf
 *.hex
 firmware/libraries/
