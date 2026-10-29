@@ -1,4 +1,4 @@
-// Payload sensors: SHT21, BMP280, MAX30100 (backup) on I2C4 (PD13/PD12), DHT-11 on a GPIO
+// Payload sensors: SHT21, 2x BMP280, MAX30100 (backup) on I2C4 (PD13/PD12), DHT-11 on a GPIO
 // Small self-contained drivers so the flight code does not depend on extra libraries.
 #pragma once
 #include <Arduino.h>
@@ -22,11 +22,11 @@ class SHT21 {
   bool ok_ = false; float t_ = NAN, rh_ = NAN;
 };
 
-// ---- BMP280 (address 0x77 because SDO -> VCC since 29 Oct; 0x76 with SDO -> GND), normal mode,
-// Bosch integer compensation
+// ---- BMP280: 0x76 when SDO -> GND (#1), 0x77 when SDO -> VCC (#2). Normal mode, Bosch integer
+// compensation. One object per module; both share I2C4.
 class BMP280 {
  public:
-  explicit BMP280(TwoWire &w, uint8_t addr = 0x77) : w_(w), addr_(addr) {}
+  explicit BMP280(TwoWire &w, uint8_t addr = 0x76) : w_(w), addr_(addr) {}
   bool begin();
   bool read();                 // updates pressure / temperature
   bool ok() const { return ok_; }

@@ -221,9 +221,10 @@ static void test_radio() {
   sp::SnailPayload sn = {}; sn.t_ms = 5000; sn.bpm_x10 = 245; sn.quality = 77; sn.wave_n = 20;
   for (int i = 0; i < 20; i++) sn.wave[i] = (uint8_t)(128 + 40 * sinf(i * 0.6f));
   sp::EnvPayload en = {}; en.t_ms = 6000; en.box_t_c100 = 1987; en.box_rh_c100 = 6543; en.box_press_pa = 101100;
-  en.heater_t_c100 = -32768; en.heater_duty = 0; en.heater_mode = 0; en.sensors_ok = 0x77;
-  en.dht_t_c100 = 2100; en.dht_rh_c100 = 5500; en.mq7_mv = 412;
-  CHECK(sizeof en == 30 && sp::ENV_V1_SIZE == 24, "ENV size %zu", sizeof en);
+  en.heater_t_c100 = -32768; en.heater_duty = 0; en.heater_mode = 0;
+  en.dht_t_c100 = 2100; en.dht_rh_c100 = 5500; en.mq7_mv = 412; en.sensors_ok = 0xF7;
+  en.bmp_t_c100 = 2010; en.box2_press_pa = 101080; en.bmp2_t_c100 = 2030;
+  CHECK(sizeof en == 36 && sp::ENV_V1_SIZE == 24, "ENV size %zu", sizeof en);
   sp::BasePayload ba = {}; ba.t_ms = 7000; ba.press_pa = 3000; ba.baro_t_c100 = -1234; ba.alt_dm = 238500; ba.acc_mg[2] = 1000;
   sp::StatusPayload st = {}; st.t_ms = 8000; st.fw_version = 0x0100; st.boot_count = 3;
   uint8_t fr[64]; size_t n;

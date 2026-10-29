@@ -48,23 +48,25 @@ struct SnailPayload {       // 39 bytes
   uint8_t  rsv[2];
 };
 
-struct EnvPayload {         // 30 bytes (fw 1.0-1.1 sent the first 24)
+struct EnvPayload {         // 36 bytes (fw 1.0-1.1 sent the first 24)
   uint32_t t_ms;
   int16_t  box_t_c100;      // SHT21 temperature
   uint16_t box_rh_c100;     // SHT21 humidity, 0.01 %
-  uint32_t box_press_pa;    // BMP280 pressure
-  int16_t  bmp_t_c100;      // BMP280 temperature
+  uint32_t box_press_pa;    // BMP280 #1 (0x76, SDO -> GND) pressure, Pa (0 = invalid)
+  int16_t  bmp_t_c100;      // BMP280 #1 temperature
   int16_t  heater_t_c100;   // NTC1 (heater surface); -32768 on rev C (no heater)
   uint8_t  heater_duty;     // 0..255 PWM duty commanded
   uint8_t  heater_mode;     // 0 off, 1 box control (SHT21), 2 heater-only (NTC1), 3 blind 20%
   uint16_t max30100_ir;     // backup optical sensor, raw IR
   uint8_t  sensors_ok;      // bit0 SHT21, bit1 BMP280, bit2 MAX30100, bit3 NTC1, bit4 SD,
-                            // bit5 DHT-11, bit6 MQ-7
+                            // bit5 DHT-11, bit6 MQ-7, bit7 BMP280 #2
   uint8_t  rsv[3];
   // ---- added in fw 1.2 (29 Oct 2026). Appended so 24-byte frames from older firmware still decode.
   int16_t  dht_t_c100;      // DHT-11 temperature, 0.01 C (-32768 = no valid reading)
   uint16_t dht_rh_c100;     // DHT-11 humidity, 0.01 % (0xFFFF = no valid reading)
   uint16_t mq7_mv;          // MQ-7 AO at PB1, mV, 1 s average (0xFFFF = MQ-7 disabled)
+  uint32_t box2_press_pa;   // BMP280 #2 (0x77, SDO -> VCC) pressure, Pa (0 = invalid)
+  int16_t  bmp2_t_c100;     // BMP280 #2 temperature (-32768 = invalid)
 };
 static const size_t ENV_V1_SIZE = 24;     // EnvPayload size before fw 1.2
 
@@ -86,7 +88,7 @@ struct StatusPayload {      // 24 bytes
 static_assert(sizeof(BasePayload)   <= MAX_PAYLOAD, "BASE too big");
 static_assert(sizeof(SnailPayload)  <= MAX_PAYLOAD, "SNAIL too big");
 static_assert(sizeof(EnvPayload)    <= MAX_PAYLOAD, "ENV too big");
-static_assert(sizeof(EnvPayload) == 30, "ENV layout changed: update ground/snailpulse_ground.py too");
+static_assert(sizeof(EnvPayload) == 36, "ENV layout changed: update ground/snailpulse_ground.py too");
 static_assert(sizeof(StatusPayload) <= MAX_PAYLOAD, "STATUS too big");
 
 uint16_t crc16_ccitt(const uint8_t *data, size_t len);

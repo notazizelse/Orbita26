@@ -22,7 +22,7 @@
 //      PB1  MQ-7 module AO (CO gas)                   analog, module VCC on +3.3 V
 //      PC6  DHT-11 DATA                               digital, sensor VCC on +3.3 V
 //      I2C4 PD13 SDA / PD12 SCL:
-//           0x40 SHT21 (GY-21)  0x57 MAX30100  0x77 BMP280 (SDO->VCC)  0x76 BMP280 (SDO->GND, if fitted)
+//           0x40 SHT21 (GY-21)  0x57 MAX30100  0x76 BMP280 #1 (SDO->GND)  0x77 BMP280 #2 (SDO->VCC)
 //    Flight controller's own sensors, I2C1 PB7 SDA / PB6 SCL (read only)
 //           0x6A LSM6DS3   0x1C LIS3MDL   0x77 MS5611   0x4A LM75A
 // =====================================================================================
@@ -137,7 +137,8 @@ static bool pinDriven(uint32_t pin, float &swing) {
 }
 
 // ------------------------------ values kept for the live view ------------------------------
-static float shtT = NAN, shtRH = NAN, bmpT = NAN, bmpP = NAN, msP = NAN, dhtT = NAN, dhtRH = NAN;
+static float shtT = NAN, shtRH = NAN, msP = NAN, dhtT = NAN, dhtRH = NAN;
+static float bmpT[2] = {NAN, NAN}, bmpP[2] = {NAN, NAN};   // [0] = #1 at 0x76, [1] = #2 at 0x77
 static bool  haveSht = false, haveMax = false, haveMs = false;
 static uint8_t bmpAddr[2];
 static uint8_t nBmp = 0;
@@ -148,8 +149,8 @@ static const char *knownName(bool payload, uint8_t a) {
     switch (a) {
       case 0x40: return "SHT21 (GY-21)";
       case 0x57: return "MAX30100";
-      case 0x76: return "BMP280 (SDO->GND)";
-      case 0x77: return "BMP280 (SDO->VCC)";
+      case 0x76: return "BMP280 #1 (SDO->GND)";
+      case 0x77: return "BMP280 #2 (SDO->VCC)";
     }
   } else {
     switch (a) {
@@ -259,30 +260,31 @@ static bool bmpRead(uint8_t a, const BmpCal &c, float &tC, float &pHpa) {
   pHpa = (float)(p / 256) / 100.0f;
   return true;
 }
+// Two BMP280 modules share I2C4: #1 with SDO -> GND (0x76, the original J8 one) and
+// #2 with SDO -> VCC (0x77, added 29 Oct). Both must answer.
 static void testBMP280() {
   nBmp = 0;
-  const uint8_t addrs[2] = {0x77, 0x76};
+  const uint8_t addrs[2] = {0x76, 0x77};
+  const char *names[2] = {"BMP280 #1 0x76", "BMP280 #2 0x77"};
+  const char *sdo[2] = {"GND", "VCC"};
   for (uint8_t k = 0; k < 2; k++) {
     uint8_t a = addrs[k];
-    const char *name = (a == 0x77) ? "BMP280 0x77" : "BMP280 0x76";
+    bmpT[k] = bmpP[k] = NAN;
     if (!i2cPing(PayWire, a)) {
-      if (a == 0x77) {
-        report(name, R_FAIL, "no answer (the SDO->VCC module)");
-        hint("check VCC = 3.3 V, SDO on VCC (not GND), CSB not on GND, SCL/SDA wires");
-      } else {
-        P("  [----] %-17s not fitted (fine if you only have the SDO->VCC one)\r\n", name);
-      }
+      report(names[k], R_FAIL, "no answer (the module with SDO -> %s)", sdo[k]);
+      if (i2cPing(PayWire, addrs[1 - k])) hint("the other BMP280 answers: if both SDO pins are on the same rail, both sit at one address and clash");
+      else hint("check VCC = 3.3 V, GND, SCL -> PD12, SDA -> PD13, CSB not on GND");
       continue;
     }
     uint8_t id;
-    if (!bmpBegin(a, bcal[nBmp], id)) { report(name, R_FAIL, "answers, chip id 0x%02X (want 0x58)", id); continue; }
+    if (!bmpBegin(a, bcal[nBmp], id)) { report(names[k], R_FAIL, "answers, chip id 0x%02X (want 0x58)", id); continue; }
     delay(150);
     float t, p;
-    if (!bmpRead(a, bcal[nBmp], t, p)) { report(name, R_FAIL, "no valid reading"); continue; }
+    if (!bmpRead(a, bcal[nBmp], t, p)) { report(names[k], R_FAIL, "no valid reading"); continue; }
     bmpAddr[nBmp++] = a;
-    if (nBmp == 1) { bmpT = t; bmpP = p; }                                 // 0x77 is preferred: it is tested first
+    bmpT[k] = t; bmpP[k] = p;
     bool ok = p > 300 && p < 1100 && t > -40 && t < 85;
-    report(name, ok ? R_PASS : R_WARN, "%s hPa  %s C%s", ff(p), ff(t), id == 0x60 ? "  (BME280 chip)" : "");
+    report(names[k], ok ? R_PASS : R_WARN, "%s hPa  %s C%s", ff(p), ff(t), id == 0x60 ? "  (BME280 chip)" : "");
   }
 }
 
@@ -512,12 +514,18 @@ static void testFcSensors() {
 
 // ================================ cross-checks ================================
 static void crossChecks() {
-  if (nBmp && haveMs) {
-    float d = bmpP - msP;
-    report("BMP280 vs MS5611", fabsf(d) < 3 ? R_PASS : R_WARN, "pressure differs by %s hPa (want < 3)", sg(d));
+  if (!isnan(bmpP[0]) && !isnan(bmpP[1])) {                // same room air: the two should agree
+    float dp = bmpP[1] - bmpP[0], dt = bmpT[1] - bmpT[0];
+    report("BMP280 #1 vs #2", (fabsf(dp) < 2 && fabsf(dt) < 2) ? R_PASS : R_WARN, "dP %s hPa  dT %s C (want < 2 each)", sg(dp), sg(dt));
   }
-  if (haveSht && nBmp) {
-    float d = bmpT - shtT;
+  for (uint8_t k = 0; k < 2; k++) {
+    if (isnan(bmpP[k]) || !haveMs) continue;
+    float d = bmpP[k] - msP;
+    report(k ? "BMP #2 vs MS5611" : "BMP #1 vs MS5611", fabsf(d) < 3 ? R_PASS : R_WARN, "pressure differs by %s hPa (want < 3)", sg(d));
+  }
+  float bt = !isnan(bmpT[0]) ? bmpT[0] : bmpT[1];
+  if (haveSht && !isnan(bt)) {
+    float d = bt - shtT;
     report("BMP280 vs SHT21", fabsf(d) < 3 ? R_PASS : R_WARN, "temperature differs by %s C (want < 3)", sg(d));
   }
   if (haveSht && !isnan(dhtT)) {

@@ -8,7 +8,7 @@
 //    * microSD over SDMMC2 with STM32SD (pins from the IntroSat guide)
 //  Added by SnailPulse:
 //    * heartbeat sampling (PB0, 50 Hz, timer interrupt) + beat detection
-//    * box environment: SHT21, BMP280 (0x77), MAX30100 on I2C4; DHT-11 on PC6; MQ-7 on PB1
+//    * box environment: SHT21, 2x BMP280 (0x76 + 0x77), MAX30100 on I2C4; DHT-11 on PC6; MQ-7 on PB1
 //    * (rev B only, SP_HEATER_ENABLED 1: heater NTC on PB1 + heater PWM on PC6)
 //    * binary packets (protocol.h) that each fit one 58-byte LoRa packet
 //
@@ -49,7 +49,8 @@ LM75A   fcTemp(FcWire, ADDR_LM75A_FCM);
 FcBaro  baro(FcWire, ADDR_MS5611);
 
 SHT21    sht(PayloadWire, ADDR_SHT21);
-BMP280   bmp(PayloadWire, ADDR_BMP280);
+BMP280   bmp(PayloadWire, ADDR_BMP280);      // #1, SDO -> GND
+BMP280   bmp2(PayloadWire, ADDR_BMP280_B);   // #2, SDO -> VCC
 MAX30100 maxs(PayloadWire, ADDR_MAX30100);
 DHT11    dht(PIN_DHT11, DHT11_PERIOD_MS);
 
@@ -109,7 +110,7 @@ void sdBegin() {
   snprintf(name, sizeof name, "TLM%03u.CSV", boot_count % 1000);
   tlmFile = SD.open(name, FILE_WRITE);
   if (hbFile) hbFile.println("t_ms,hb_adc");
-  if (tlmFile) tlmFile.println("t_ms,type,fields...  (ENV adds dht_t_c100,dht_rh_c100,mq7_mv since fw 1.2)");
+  if (tlmFile) tlmFile.println("t_ms,type,fields...  (ENV adds dht_t_c100,dht_rh_c100,mq7_mv,box2_press_pa,bmp2_t_c100 since fw 1.2)");
   if (!hbFile || !tlmFile) { sd_ok = false; sd_errors++; }
 }
 
@@ -197,14 +198,17 @@ void sendEnv(uint32_t now) {
   p.dht_t_c100 = dht.ok() ? c100(dht.temperature()) : -32768;
   p.dht_rh_c100 = dht.ok() ? (uint16_t)(dht.humidity() * 100) : 0xFFFF;
   p.mq7_mv = mq7_mv;
+  p.box2_press_pa = bmp2.ok() ? bmp2.pressure_pa() : 0;
+  p.bmp2_t_c100 = bmp2.ok() ? c100(bmp2.temperature()) : -32768;
   bool mq7_ok = mq7_mv != 0xFFFF && mq7_mv > 5 && mq7_mv < 3290;   // 0 V = wire off, 3.3 V = saturated
   p.sensors_ok = (sht.ok() ? 1 : 0) | (bmp.ok() ? 2 : 0) | (maxs.ok() ? 4 : 0) | (!isnan(heater_c) ? 8 : 0) | (sd_ok ? 16 : 0)
-               | (dht.ok() ? 32 : 0) | (mq7_ok ? 64 : 0);
+               | (dht.ok() ? 32 : 0) | (mq7_ok ? 64 : 0) | (bmp2.ok() ? 128 : 0);
   radio.send(sp::PKT_ENV, &p, sizeof p);
-  char line[140];
-  snprintf(line, sizeof line, "%lu,ENV,%d,%u,%lu,%d,%d,%u,%u,%u,%u,%d,%u,%u", (unsigned long)now, p.box_t_c100, p.box_rh_c100,
+  char line[160];
+  snprintf(line, sizeof line, "%lu,ENV,%d,%u,%lu,%d,%d,%u,%u,%u,%u,%d,%u,%u,%lu,%d", (unsigned long)now, p.box_t_c100, p.box_rh_c100,
            (unsigned long)p.box_press_pa, p.bmp_t_c100, p.heater_t_c100, p.heater_duty, p.heater_mode,
-           p.max30100_ir, p.sensors_ok, p.dht_t_c100, p.dht_rh_c100, p.mq7_mv);
+           p.max30100_ir, p.sensors_ok, p.dht_t_c100, p.dht_rh_c100, p.mq7_mv,
+           (unsigned long)p.box2_press_pa, p.bmp2_t_c100);
   sdLogLine(line);
 }
 
@@ -216,7 +220,7 @@ void sendStatus(uint32_t now) {
   p.frames_sent = radio.sent();
   p.acks_missed = radio.missed_acks();
   p.frames_dropped = radio.dropped();
-  p.i2c_errors = sht.errors + bmp.errors + maxs.errors + baro.errors;   // DHT-11 health: ENV sensors_ok bit 5
+  p.i2c_errors = sht.errors + bmp.errors + bmp2.errors + maxs.errors + baro.errors;   // DHT-11 health: ENV sensors_ok bit 5
   p.sd_errors = sd_errors;
   p.loop_max_ms = (uint16_t)(loop_max_ms > 65535 ? 65535 : loop_max_ms);
   p.reset_cause = reset_cause;
@@ -253,6 +257,7 @@ void setup() {
   PayloadWire.setClock(100000);
   sht.begin();
   bmp.begin();
+  bmp2.begin();
   maxs.begin();      // backup sensor - flight continues without it
 #if SP_HAS_DHT11
   dht.begin(millis());
@@ -298,6 +303,7 @@ void loop() {
     heater_c = ntc_celsius(ntc1_raw, (1u << ADC_BITS) - 1, NTC_R_FIXED, NTC_R25, NTC_BETA);
 #endif
     if (!bmp.ok() && bmp.errors < 100) bmp.begin(); else if (bmp.ok()) bmp.read();
+    if (!bmp2.ok() && bmp2.errors < 100) bmp2.begin(); else if (bmp2.ok()) bmp2.read();
     if (maxs.ok()) maxs.read();
 #if SP_HEATER_ENABLED
     float box = sht.ok() ? sht.temperature() : NAN;
