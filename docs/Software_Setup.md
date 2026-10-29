@@ -14,9 +14,9 @@ It installs everything in sections 1 and 4 and fixes an Arduino IDE stuck on its
 
 | Need | Official source | From Russia | What this guide uses |
 |---|---|---|---|
-| STM32CubeIDE (debugger) | st.com | **Refused** (ST applies export-control rules; reports since 2022, a browser VPN also failed) | ST's own installer from the **dl.sisoog.com** mirror, checked with Apple's signature check |
+| STM32CubeIDE (debugger) | st.com | **Refused** (ST applies export-control rules; reports since 2022, a browser VPN also failed) | The official installer downloaded outside Russia and copied over (section 2); fallback: the **dl.sisoog.com** mirror, checked with Apple's signature check |
 | STM32CubeProgrammer | st.com | **Refused** | The **STM32_Programmer_CLI** that ships inside STM32CubeIDE. No mirror has the macOS GUI version |
-| Arduino toolchain | arduino.cc | **Blocked** (Cloudflare 403, Oct 2026) | arduino-cli from Homebrew; the STM32 core and libraries from GitHub; one small folder copied from a computer outside Russia (section 4) |
+| Arduino toolchain | arduino.cc | **Blocked** (Cloudflare 403, Oct 2026) | An offline bundle + the IDE `.dmg` built outside Russia and copied over (section 4) |
 | Homebrew, GitHub, PyPI | | Reachable | Everything else |
 
 There is no Homebrew package for any ST tool (checked: only `gcc-arm-embedded` and SEGGER tools exist).
@@ -35,7 +35,7 @@ There is no Homebrew package for any ST tool (checked: only `gcc-arm-embedded` a
 # and the open-source debug tools used as a fallback in section 7
 brew install git python gnu-getopt arduino-cli open-ocd arm-none-eabi-gdb stlink
 
-# Apple silicon only (M1/M2/M3/M4): STM32CubeIDE for Mac is an Intel build and runs under Rosetta
+# Apple silicon + the Intel CubeIDE mirror build only (section 2 fallback): it runs under Rosetta
 softwareupdate --install-rosetta --agree-to-license
 
 # The project
@@ -47,7 +47,19 @@ git checkout sensors-dht11-mq7        # until PR #1 is merged into main
 .venv/bin/pip install pyserial matplotlib
 ```
 
-## 2. STM32CubeIDE 2.0.0 for macOS (debugger, includes CubeProgrammer CLI)
+## 2. STM32CubeIDE for macOS (debugger, includes CubeProgrammer CLI)
+
+**Best: the official installer, downloaded outside Russia and copied over.** On 29 Oct 2026 we downloaded `stm32cubeide_2.2.0-Mac-aarch64.dmg.zip` (STM32CubeIDE 2.2.0, native **Apple Silicon**, 929 808 797 bytes) from st.com with a myST login on a computer in Uzbekistan. It went to the client's Mac with the Arduino files (section 4, route A). Then:
+
+```bash
+cd ~/Downloads/SnailPulse_Mac
+unzip stm32cubeide_2.2.0-Mac-aarch64.dmg.zip
+open stm32cubeide_2.2.0_*-Mac-aarch64.dmg
+```
+
+Then do the signature check in 2.3. No Rosetta is needed for this build.
+
+**Only if nobody outside can download it:** the Intel 2.0.0 build from a mirror (runs under Rosetta on Apple silicon):
 
 ### 2.1 Download (~930 MB)
 
@@ -105,7 +117,23 @@ With the ST-Link wired to the flight controller (see the box below) and the FC p
 
 ## 4. Arduino toolchain without arduino.cc
 
-The STM32 board package, its compiler, OpenOCD and our three libraries all download from **GitHub**. Only arduino-cli's own small helper tools (ctags, serial discovery) come from `downloads.arduino.cc`, which is blocked. So someone **outside Russia** does the setup once on a Mac of the **same chip type** (Apple silicon or Intel: `uname -m` must print the same on both) and sends the folder.
+The STM32 board package, its compiler, OpenOCD and our three libraries all download from **GitHub**. Only arduino-cli's own small helper tools (ctags, serial discovery) and the board/library lists come from `downloads.arduino.cc`, which is blocked. The Arduino IDE also tries to install Arduino AVR Boards on its first start.
+
+**Route A (used on 29 Oct 2026): an offline bundle built on any computer outside Russia, Windows included.**
+
+```bash
+python3 scripts/build_mac_arduino_bundle.py C:/SnailPulse_Mac --arch arm64      # x86_64 for an Intel Mac
+```
+
+It writes `arduino-offline-mac-arm64.tgz` (~460 MB): indexes, helper tools, STM32 package 2.12.0 with compiler and OpenOCD, Arduino AVR Boards, our three libraries and the IDE's built-in libraries. The layout is exactly what arduino-cli 1.5.1 / Arduino IDE 2.3.10 install. Put the Arduino IDE `.dmg` (`arduino-ide_2.3.10_macOS_ARM64.dmg` from github.com/arduino/arduino-ide/releases) in the same folder, copy the folder to the Mac's `~/Downloads`, then run:
+
+```bash
+bash scripts/mac_setup.sh --arduino15 ~/Downloads/SnailPulse_Mac/arduino-offline-mac-arm64.tgz
+```
+
+The script installs the IDE from the `.dmg`, unpacks the bundle into `~/Library/Arduino15` and `~/Documents/Arduino`, clears the macOS "downloaded" flag so the compiler isn't blocked, and test-compiles.
+
+**Route B: a Mac outside Russia** of the **same chip type** (`uname -m` must print the same on both) does the setup once and sends its folder.
 
 **4a. On the Mac outside Russia:**
 

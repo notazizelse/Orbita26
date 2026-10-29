@@ -20,7 +20,8 @@ Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11, an MQ
 | `ground/snailpulse_ground.py` | Ground-station decoder (serial → console + CSV + plots); `Parser`/`decode` are reused by the monitor |
 | `ground/snailpulse_monitor.py` | Live ground screen in the browser: every sensor OK/WARN/FAIL + charts (`--demo`, `--file`) |
 | `radio_handoff/` | For the radio technician: link contract, `snailpulse_frames.h` (C99 parser + structs), FC hook template, ground receiver |
-| `scripts/mac_setup.sh` | Mac setup: fixes a stuck Arduino IDE, installs core/libs/ST-Link tools, `.venv` for the monitor |
+| `scripts/mac_setup.sh` | Mac setup: fixes a stuck Arduino IDE, installs core/libs/ST-Link tools, `.venv` for the monitor; `--arduino15 <bundle>` works with no arduino.cc |
+| `scripts/build_mac_arduino_bundle.py` | Builds that offline Arduino bundle for a Mac on any PC outside Russia (keeps Unix modes/symlinks, nothing unpacked locally) |
 | `docs/Bench_Test.md` | Cables, power order, upload settings, what the monitor's states mean |
 | `hardware/perfboard/SnailPulse_perfboard_build.html` | **Main build guide** (interactive hole-by-hole layout, steps, multimeter checks) |
 | `docs/SnailPulse_RevC_Walkthrough.html` | Schematic walkthrough (1 MB, embedded SVG; edit text only) |
