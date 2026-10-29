@@ -10,7 +10,6 @@ fp-info-cache
 # Arduino / build
 build/
 *.bin
-!firmware/build_backup/*.bin
 *.elf
 *.hex
 firmware/libraries/
@@ -22,3 +21,8 @@ logs/
 
 # OS
 .DS_Store
+
+# Python venv made by scripts/mac_setup.sh, PC test outputs
+.venv/
+firmware/tests/test_host.exe
+firmware/tests/frames.bin

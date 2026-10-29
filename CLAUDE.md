@@ -16,11 +16,15 @@ Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11, an MQ
 | `firmware/tools/SensorTest/` | Bench sketch: PASS/FAIL for every sensor over the FC USB-C (115200) |
 | `firmware/tools/HB_Tune/` | Streams PB0 (+ MQ-7) to the Serial Plotter for tuning RV3 |
 | `firmware/tests/test_host.cpp` | PC unit tests for the Arduino-free code |
-| `firmware/build_backup/` | Prebuilt `.bin` files + SHA256SUMS, rev C patch, E32 config script |
-| `ground/snailpulse_ground.py` | Ground-station decoder (serial → console + CSV + plots) |
+| `firmware/build_backup/` | E32 config script, rev C heater patch (no prebuilt firmware: always build from source) |
+| `ground/snailpulse_ground.py` | Ground-station decoder (serial → console + CSV + plots); `Parser`/`decode` are reused by the monitor |
+| `ground/snailpulse_monitor.py` | Live ground screen in the browser: every sensor OK/WARN/FAIL + charts (`--demo`, `--file`) |
+| `radio_handoff/` | For the radio technician: link contract, `snailpulse_frames.h` (C99 parser + structs), FC hook template, ground receiver |
+| `scripts/mac_setup.sh` | Mac setup: fixes a stuck Arduino IDE, installs core/libs/ST-Link tools, `.venv` for the monitor |
+| `docs/Bench_Test.md` | Cables, power order, upload settings, what the monitor's states mean |
 | `hardware/perfboard/SnailPulse_perfboard_build.html` | **Main build guide** (interactive hole-by-hole layout, steps, multimeter checks) |
 | `docs/SnailPulse_RevC_Walkthrough.html` | Schematic walkthrough (1 MB, embedded SVG; edit text only) |
-| `docs/Software_Setup.md` | Install/flash commands for macOS and Windows, including from Russia |
+| `docs/Software_Setup.md` | Build, flash and debug (STM32CubeIDE) on macOS/Windows, including from Russia without VPN |
 | `hardware/kicad_revC/` | Rev C KiCad project (**not yet updated** for the 29 Oct sensors) |
 | `docs/Firmware_and_Integration.md` | How the firmware works and plugs into IntroSat |
 
@@ -46,6 +50,8 @@ I²C4: SHT21 0x40 · MAX30100 0x57 · **BMP280 #1 0x76 (SDO→GND, J8)** · **BM
 arduino-cli compile -b STMicroelectronics:stm32:GenH7:pnum=GENERIC_H750VBTX --warnings all firmware/SnailPulse_Flight
 ```
 
+For debugging add `,opt=ogstd,dbg=enable_sym` to the FQBN and `--output-dir <dir>`; import the `.elf` in STM32CubeIDE (File → Import → STM32 Cortex-M Executable, MCU STM32H750VBTx). The flight firmware freezes its watchdog while the core is halted (`DBGMCU->APB4FZ1`), so breakpoints don't reset it.
+
 **PC tests** (any C++17 compiler; on a machine without one, `pip install ziglang` then `python -m ziglang c++ ...`):
 
 ```bash
@@ -62,8 +68,9 @@ Before claiming firmware work is done: PC tests pass, the ground script decodes 
 - **Only the TIM6 ISR calls `analogRead()`** in the flight code (PB0 at 50 Hz, PB1 at 5 Hz). `loop()` never touches the ADC.
 - **Never block `loop()`**: sensors are state machines; the 4 s watchdog resets the MCU otherwise. The DHT-11 bit read (~5 ms) starts right after an ISR tick (`last_tick_us`) so the 50 Hz interrupt can't stretch a bit.
 - **Maths stays Arduino-free** (`heartbeat`, `thermal`, `protocol`, `*_comp.h`, `dht11_decode.h`) so `test_host.cpp` can test it. New maths gets a test there.
-- **Packet changes touch four places together:** the struct in `protocol.h` (+ its `static_assert` size), `ground/snailpulse_ground.py` (format string + old-size fallbacks), the frame dump in `test_host.cpp`, and the packet tables in `firmware/README.md` and `docs/Firmware_and_Integration.md`. Only **append** fields so old logs still decode. Every frame must fit one 58-byte LoRa packet (payload ≤ 51 B).
+- **Packet changes touch these places together:** the struct in `protocol.h` (+ its `static_assert` size), `ground/snailpulse_ground.py` (format string + old-size fallbacks), the checks in `ground/snailpulse_monitor.py` (`evaluate`, `demo_frames`), `radio_handoff/snailpulse_frames.h` (structs + size checks) and its README test frames, the frame dump in `test_host.cpp`, and the packet tables in `firmware/README.md` and `docs/Firmware_and_Integration.md`. Only **append** fields so old logs still decode. Every frame must fit one 58-byte LoRa packet (payload ≤ 51 B).
 - **Wiring changes touch the guides together:** the perfboard guide (layout JSON `L`, `NETS`, `WIRE`, `OFF`, `STEPS` + Requirements), the walkthrough text, `README.md`, and `config.h`. The perfboard guide stores ticked checks in `localStorage` keyed by step number; inserting a step needs the migration pattern already in the file.
+- Every frame leaves through `sendFrame()` in the sketch: comm board queue (`SP_OWN_RADIO`), USB-C copy (`SP_USB_MIRROR`, UART2 PA3/PA2) and the `sp_frame_out()` hook (`sp_hooks.h`, weak defaults in `sp_hooks.cpp`). Merged code (radio technician) plugs in through those hooks, never by editing `loop()`.
 - `SP_HEATER_ENABLED` must stay 0 while the DHT-11 / MQ-7 use PC6 / PB1 (`config.h` has an `#error` for it).
 
 ## Gotchas found the hard way
@@ -72,7 +79,7 @@ Before claiming firmware work is done: PC tests pass, the ground script decodes 
 - The IDE default C library (newlib-nano) **can't `printf` floats**: SensorTest formats them with `ff()`.
 - The Arduino IDE auto-generates function prototypes near the top of an `.ino`: custom types used in signatures must live in a header (`sensortest_types.h`).
 - On Windows, the arduino-cli toolchain breaks if its data folder path is long (260-char limit): keep it short, e.g. `%TEMP%\spa`.
-- `arduino.cc` is blocked from Russia, and `st.com` refuses some downloads: see `docs/Software_Setup.md`.
+- `arduino.cc` is blocked from Russia, and `st.com` refuses STM32CubeIDE/CubeProgrammer downloads there: see `docs/Software_Setup.md` (mirror + signature check, Arduino15 folder copied from outside). On macOS the CubeProgrammer CLI comes from inside STM32CubeIDE.
 - `docs/SnailPulse_RevC_Walkthrough.html` is too big for the app's browser pane; check its HTML with a script.
 
 ## Style

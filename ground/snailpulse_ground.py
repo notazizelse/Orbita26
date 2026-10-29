@@ -27,9 +27,9 @@ PACKETS = {
            ["t_ms", "box_t_c100", "box_rh_c100", "box_press_pa", "bmp_t_c100", "heater_t_c100",
             "heater_duty", "heater_mode", "max30100_ir", "sensors_ok", "rsv",
             "dht_t_c100", "dht_rh_c100", "mq7_mv", "box2_press_pa", "bmp2_t_c100"]),
-    0x7F: ("STATUS", "<IHHHHHHHHB3s",
+    0x7F: ("STATUS", "<IHHHHHHHHBB2s",         # fc_ok was a reserved 0 byte in older builds
            ["t_ms", "fw_version", "boot_count", "frames_sent", "acks_missed", "frames_dropped",
-            "i2c_errors", "sd_errors", "loop_max_ms", "reset_cause", "rsv"]),
+            "i2c_errors", "sd_errors", "loop_max_ms", "reset_cause", "fc_ok", "rsv"]),
 }
 # Shorter ENV packets from older builds (24 bytes: fw 1.0-1.1; 30 bytes: an early 1.2 test build).
 # The fields they lack decode as "missing".
@@ -124,7 +124,7 @@ def scaled(name, d):
     if name == "STATUS":
         return (f"fw {d['fw_version'] >> 8}.{d['fw_version'] & 0xFF} boot {d['boot_count']} sent {d['frames_sent']} "
                 f"noACK {d['acks_missed']} drop {d['frames_dropped']} i2cErr {d['i2c_errors']} "
-                f"sdErr {d['sd_errors']} loopMax {d['loop_max_ms']} ms reset {d['reset_cause']}")
+                f"sdErr {d['sd_errors']} loopMax {d['loop_max_ms']} ms reset {d['reset_cause']} fcOk 0x{d['fc_ok']:X}")
     return str(d)
 
 

@@ -15,10 +15,14 @@ Rev C SnailPulse (heartbeat only, no heater) gained three sensors on 29 Oct 2026
 | ENV packet | 24 → 36 bytes: + DHT-11 T/RH, MQ-7 mV, BMP280 #2 P/T. `sensors_ok` bits 5/6/7 = DHT-11/MQ-7/BMP280 #2; healthy rev C board = **0xF7** |
 | `firmware/tools/HB_Tune` | No longer holds PC6 low (would block the DHT-11); plots MQ-7 instead of the old heater NTC |
 | `ground/snailpulse_ground.py` | Decodes 36/30/24-byte ENV, shows and plots the new values, starts a new CSV when columns change |
-| `firmware/build_backup/` | Prebuilt `.bin` for SensorTest, HB_Tune and flight fw 1.2 + SHA256SUMS |
+| Debugging | Flight firmware pauses its watchdog while a debugger halts the core; prebuilt `.bin` files removed (build from source to debug) |
 | Perfboard build guide | Step 10 (DHT-11 row 17, MQ-7 row 19, BMP280 #2 row 14, FC pads PC6/PB1), step 11 runs SensorTest; IntroBus_L pin map; code-to-board table; pre-test voltage table |
 | Walkthrough + READMEs + integration doc | Updated to match |
-| `docs/Software_Setup.md` (new) | macOS/Windows install and flash commands that avoid arduino.cc and st.com (blocked from Russia) |
+| Ground monitor (30 Oct) | `ground/snailpulse_monitor.py`: browser screen with every sensor's value and OK/WARN/FAIL, cross-checks, charts, FC text console. Reads the FC's USB-C or the ground LoRa module; `--demo`, `--file` |
+| Flight fw (30 Oct) | Every frame is also copied to the FC's USB-C (`SP_USB_MIRROR`), STATUS reports FC sensor health (`fc_ok`), hooks for merged radio code (`sp_hooks.h`, `SP_OWN_RADIO`) |
+| `radio_handoff/` (30 Oct) | What to give the radio technician: link contract, 4 integration routes, `snailpulse_frames.h`, examples, test frames |
+| `scripts/mac_setup.sh` + `docs/Bench_Test.md` (30 Oct) | One-shot Mac setup that resets a stuck Arduino IDE; cables, power order, upload settings |
+| `docs/Software_Setup.md` (new) | macOS/Windows: build, flash and debug in STM32CubeIDE from Russia without VPN (CubeIDE from the dl.sisoog.com mirror + signature check, CubeProgrammer CLI from inside CubeIDE, Arduino15 folder copied from outside Russia) |
 
 ## Verified
 
@@ -29,7 +33,8 @@ Rev C SnailPulse (heartbeat only, no heater) gained three sensors on 29 Oct 2026
 
 ## Not verified (do these next, in order)
 
-1. **Bench run with SensorTest.** Flash `firmware/build_backup/SensorTest_core2.12.bin` (or build it) and fix every FAIL. The voltage checks to do first are in the perfboard guide, steps 10 and 11.
+0. **Compile the 30 Oct firmware changes** (USB-C copy, `fc_ok`, hooks, watchdog freeze). They were made without the STM32 toolchain on hand; only the PC tests ran. `bash scripts/mac_setup.sh` compiles SensorTest and the flight firmware at its end. Also not run yet: `scripts/mac_setup.sh` on a real Mac, and whether opening the FC's USB-C port resets the board (CH340X DTR).
+1. **Bench run with SensorTest.** Build and flash `firmware/tools/SensorTest` (`docs/Software_Setup.md` section 5) and fix every FAIL. The voltage checks to do first are in the perfboard guide, steps 10 and 11.
 2. **Confirm the FC's USB-C is UART2 (PA3/PA2).** That comes from earlier team notes, not the IntroSat guide. If nothing prints, set `MIRROR_UART1 1` in SensorTest and read UART1 through the Bluetooth module.
 3. **Flight firmware on the FC.** STATUS should say fw 1.2, ENV `ok=0xF7`. Watch `loop_max_ms` (the DHT-11 read adds ~5 ms every 2 s) and the DHT-11 failure rate.
 4. **Merge PR #1** once the bench run passes.

@@ -48,7 +48,7 @@ Every frame is `AA 55 | type | seq | len | payload | CRC16`. Each frame is at mo
 | `0x10` SNAIL | 2 s | 46 | bpm×10, last interval, beat count, quality 0–100, flags, amplitude, DC level, **20 waveform samples (10 Hz)** |
 | `0x01` BASE | 2 s | 41 | MS5611 pressure/temp/altitude (ISA), accel, gyro, mag, LM75A |
 | `0x11` ENV | 4 s | 43 | SHT21 box T/RH, BMP280 #1 box pressure/T, MAX30100 IR, sensor-OK bits, **DHT-11 T/RH, MQ-7 mV, BMP280 #2 pressure/T** (fw 1.2; heater fields stay empty on rev C) |
-| `0x7F` STATUS | 10 s | 31 | firmware version, boot count, frames sent / no-ACK / dropped, I2C and SD errors, worst loop time, watchdog reset |
+| `0x7F` STATUS | 10 s | 31 | firmware version, boot count, frames sent / no-ACK / dropped, I2C and SD errors, worst loop time, watchdog reset, FC sensor-OK bits (LSM6DS3, LIS3MDL, LM75A, MS5611) |
 
 This averages about **57 bytes/s ≈ 0.46 kbit/s** against the 2.4 kbit/s air rate. That leaves room for retries and for other teams on nearby channels.
 The SD card stores everything at full rate. `HBnnn.CSV` holds the raw 50 Hz heartbeat signal and `TLMnnn.CSV` holds every packet; `nnn` is the boot count.
@@ -59,6 +59,7 @@ The SD card stores everything at full rate. `HBnnn.CSV` holds the raw 50 Hz hear
 - **Beat detector.** Smoothing (τ 80 ms) and a moving baseline (τ 6 s) feed an envelope follower. A beat is an upward crossing at 40 % of the envelope. The refractory period is 0.4 s minimum, or 40 % of the usual interval. The reported rate is the **median of the last 5 intervals**, so one missed or extra beat does not spoil it. Accepted range is 3–150 bpm. Tested on synthetic snail pulses from 4 to 120 bpm, a 10→25 bpm step, and noise only (gives 0 bpm, quality 0).
 - **Waveform is sent too.** On the ground we can recount beats ourselves, so we don't have to trust the onboard algorithm.
 - **Heater control.** A PI loop holds the **box air at 20 °C** using the SHT21. The heater plate (NTC1) is limited to **35 °C** in software, with a taper over the last 3 °C. If a sensor fails, the controller falls back: SHT21 dead → plate held at 25 °C; both dead → fixed 20 % duty (~0.9 W). The LM393 hardware cutoff (~40 °C) works **even if the MCU hangs**.
+- **USB-C copy.** Every radio frame also goes out of the FC's USB-C (UART2, 115200), so `ground/snailpulse_monitor.py` shows all sensors on the bench without a radio (`SP_USB_MIRROR` in `config.h`). Code that should own the radio instead plugs in through `sp_hooks.h` (`SP_OWN_RADIO 0`, see `radio_handoff/README.md`).
 - **Watchdog (4 s).** A stuck I2C bus or SD card resets the MCU instead of killing the mission. The STATUS packet reports whether the last reset came from the watchdog.
 - **Own MS5611 driver.** IntroStratLib 0.1.2 has two problems with this sensor. `GetPressure()` blocks for ~80 ms. Its second-order compensation mixes units and gets the sign of T2 wrong, so **below 20 °C** it reports e.g. −163 °C at a real −1.6 °C and pressure about 1 % low (see `tests/`). We use the datasheet formulas, and ISA altitude that is valid above 11 km (at 30 mbar the simple formula says 21.7 km; ISA says 23.9 km).
 

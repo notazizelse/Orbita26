@@ -81,7 +81,9 @@ struct StatusPayload {      // 24 bytes
   uint16_t sd_errors;
   uint16_t loop_max_ms;     // worst loop time in the last period
   uint8_t  reset_cause;     // 1 = watchdog
-  uint8_t  rsv[3];
+  uint8_t  fc_ok;           // FC service sensors found at boot: bit0 LSM6DS3, bit1 LIS3MDL, bit2 LM75A,
+                            // bit3 MS5611 (live). Was reserved (0) before fw 1.2 build of 30 Oct 2026.
+  uint8_t  rsv[2];
 };
 #pragma pack(pop)
 
