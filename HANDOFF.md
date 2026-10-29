@@ -33,7 +33,7 @@ Rev C SnailPulse (heartbeat only, no heater) gained three sensors on 29 Oct 2026
 
 ## Not verified (do these next, in order)
 
-0. **Compile the 30 Oct firmware changes** (USB-C copy, `fc_ok`, hooks, watchdog freeze). They were made without the STM32 toolchain on hand; only the PC tests ran. `bash scripts/mac_setup.sh` compiles SensorTest and the flight firmware at its end. Also not run yet: `scripts/mac_setup.sh` on a real Mac, and whether opening the FC's USB-C port resets the board (CH340X DTR).
+0. **Done 30 Oct:** `scripts/mac_setup.sh` ran on the team Mac (M5, offline Arduino bundle) and compiled the 30 Oct firmware: SensorTest 57,484 B (43 %), SnailPulse_Flight 83,752 B (63 %). The script output didn't list per-file warnings; check `--warnings all` once in the IDE. Still open: whether opening the FC's USB-C port resets the board (CH340X DTR). Zip the repo for a Mac with `git -c core.autocrlf=false archive` and unpack with `ditto -x -k` (macOS `unzip` breaks on the Russian file names).
 1. **Bench run with SensorTest.** Build and flash `firmware/tools/SensorTest` (`docs/Software_Setup.md` section 5) and fix every FAIL. The voltage checks to do first are in the perfboard guide, steps 10 and 11.
 2. **Confirm the FC's USB-C is UART2 (PA3/PA2).** That comes from earlier team notes, not the IntroSat guide. If nothing prints, set `MIRROR_UART1 1` in SensorTest and read UART1 through the Bluetooth module.
 3. **Flight firmware on the FC.** STATUS should say fw 1.2, ENV `ok=0xF7`. Watch `loop_max_ms` (the DHT-11 read adds ~5 ms every 2 s) and the DHT-11 failure rate.
