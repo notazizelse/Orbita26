@@ -6,8 +6,8 @@
 //             board, not the power board.
 //
 //  Arduino IDE:  Tools > Board > STM32 MCU based boards > Generic STM32H7 Series
-//                Board part number: STM32H750VBTx
-//                Upload method:     STM32CubeProgrammer (SWD)
+//                Board part number: Generic H750VBTx
+//                Upload method:     OpenOCD STLink (SWD)  (or STM32CubeProgrammer (SWD) if installed)
 //  ST-Link -> FCM "PROG" header: SWCLK->CLK, SWDIO->SWD, GND->GND. BOOT0 jumper on 0.
 //  No extra libraries: only Wire, which comes with the STM32 board package.
 //
@@ -26,6 +26,10 @@
 //    Flight controller's own sensors, I2C1 PB7 SDA / PB6 SCL (read only)
 //           0x6A LSM6DS3   0x1C LIS3MDL   0x77 MS5611   0x4A LM75A
 // =====================================================================================
+// Stop with one clear message if the IDE is set to another chip (otherwise: dozens of "PA10 not declared").
+#if !defined(STM32H750xx)
+#error "Wrong board. Tools > Board > STM32 MCU based boards > Generic STM32H7 Series, then Tools > Board part number > Generic H750VBTx"
+#endif
 #include <Arduino.h>
 #include <Wire.h>
 #include <stdarg.h>

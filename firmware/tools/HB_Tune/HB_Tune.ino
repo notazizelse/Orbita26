@@ -1,5 +1,5 @@
 // HB_Tune - bench tool for setting up the SnailPulse sensor before flight.
-// UPLOAD TO: the IntroSat flight controller (Generic STM32H7 -> STM32H750VBTx, ST-Link SWD).
+// UPLOAD TO: the IntroSat flight controller (Generic STM32H7 Series -> Generic H750VBTx, ST-Link SWD).
 // Streams HB_ADC (PB0) and the MQ-7 output (PB1) over the FCM USB Type-C port
 // (UART2, PA3/PA2) at 50 Hz. Open Tools -> Serial Plotter at 115200.
 //
@@ -16,6 +16,10 @@
 // 29 Oct: rev C has no heater. PC6 is now the DHT-11 data line and PB1 the MQ-7 AO, so this
 // sketch leaves PC6 alone (it used to hold it LOW, which blocks the DHT-11) and plots the
 // MQ-7 voltage instead of the old heater thermistor. For a full sensor check use SensorTest.
+// Stop with one clear message if the IDE is set to another chip (otherwise: dozens of "PA10 not declared").
+#if !defined(STM32H750xx)
+#error "Wrong board. Tools > Board > STM32 MCU based boards > Generic STM32H7 Series, then Tools > Board part number > Generic H750VBTx"
+#endif
 #include <Arduino.h>
 
 // STM32 board package 3.x renamed the UART class from HardwareSerial to Uart.

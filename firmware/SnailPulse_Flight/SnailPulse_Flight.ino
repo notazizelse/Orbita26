@@ -12,9 +12,13 @@
 //    * (rev B only, SP_HEATER_ENABLED 1: heater NTC on PB1 + heater PWM on PC6)
 //    * binary packets (protocol.h) that each fit one 58-byte LoRa packet
 //
-//  Arduino IDE setup: Board "Generic STM32H7 Series", part "STM32H750VBTx",
+//  Arduino IDE setup: Board "Generic STM32H7 Series", Board part number "Generic H750VBTx",
 //  STM32 board package 2.12.0, libraries: IntroStratLib, STM32SD (+FatFs). Upload via ST-Link (SWD).
 // =====================================================================================
+// Stop with one clear message if the IDE is set to another chip (otherwise: dozens of "PA10 not declared").
+#if !defined(STM32H750xx)
+#error "Wrong board. Tools > Board > STM32 MCU based boards > Generic STM32H7 Series, then Tools > Board part number > Generic H750VBTx"
+#endif
 #include <Wire.h>
 #include <STM32SD.h>
 #include <IWatchdog.h>
