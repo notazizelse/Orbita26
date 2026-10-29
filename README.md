@@ -107,9 +107,14 @@ The final runs from **26 October to 1 November 2026** at Bauman Moscow State Tec
 
 ## Repository
 
+**Start here:** [HANDOFF.md](HANDOFF.md) (where the work stands and what's next) · [docs/Software_Setup.md](docs/Software_Setup.md) (build, flash and debug on macOS/Windows, also from Russia; Mac: `bash scripts/mac_setup.sh`) · [docs/Bench_Test.md](docs/Bench_Test.md) (what plugs where, power order, upload, ground monitor) · [radio_handoff/](radio_handoff/README.md) (for the radio technician) · [CLAUDE.md](CLAUDE.md) (project rules, pins, build and test commands) · [hardware/perfboard/SnailPulse_perfboard_build.html](hardware/perfboard/SnailPulse_perfboard_build.html) (build guide).
+
 ```
 Orbita26/
 ├── README.md                     ← you are here
+├── HANDOFF.md                    current state + next steps
+├── CLAUDE.md                     rules, pins, build/test commands
+├── firmware/build_backup/        E32 LoRa config script, rev C heater patch (history)
 ├── International_tournament_Orbita_Schedule_EN.pdf   final programme      (new)
 ├── Письмо ЦИКЕНО Узбекистан.pdf  organizers' confirmation letter          (new)
 ├── russia team.pdf               delegation list                         (new)
@@ -126,7 +131,10 @@ Orbita26/
 │   ├── SnailPulse_wiring.pdf
 │   └── SnailPulse_shopping_list.md
 ├── firmware/                     flight code for the IntroSat flight controller → firmware/README.md
+├── ground/snailpulse_monitor.py  live ground screen: every sensor with OK/WARN/FAIL (browser)
 ├── ground/snailpulse_ground.py   ground-station decoder (serial → console + CSV + plots)
+├── radio_handoff/                frame format, C header, examples for the radio technician
+├── scripts/mac_setup.sh          one-shot Mac setup (Arduino IDE fix, toolchain, monitor)
 ├── docs/
 │   ├── Firmware_and_Integration.md  how the code works and plugs into IntroSat   (new)
 │   ├── 3d/                       3D preview: viewer, .glb model, renders          (new)
@@ -152,7 +160,7 @@ The flight controller sends four binary packet types. Each fits in one 58-byte L
 
 Total is about 435 bit/s, 18 % of the 2.4 kbit/s link. Everything is also logged to microSD at full rate.
 
-Ground station: `python ground/snailpulse_ground.py --port <LoRa-UART port> --baud <its UART rate>`. After the flight: `--plot logs/`.
+Ground station: `python3 ground/snailpulse_monitor.py --port <port> --baud <rate>` (live screen; `--demo` without hardware) or `python ground/snailpulse_ground.py --port <LoRa-UART port> --baud <its UART rate>` (console + CSV). After the flight: `snailpulse_ground.py --plot logs/`.
 
 ## Still to do before flight
 

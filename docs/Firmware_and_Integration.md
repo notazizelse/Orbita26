@@ -254,7 +254,7 @@ The guide also recommends sending raw binary numbers instead of text. A text lin
 | `0x10` SNAIL | 2 s | 46 B | bpm × 10, last interval, beat count, quality, flags (beat seen / clipped / no signal), pulse amplitude, DC level, **20 waveform samples** |
 | `0x01` BASE | 2 s | 41 B | MS5611 pressure, temperature, ISA altitude; acceleration, rotation, magnetic field; FCM board temperature |
 | `0x11` ENV | 4 s | 43 B | box T and RH (SHT21), box pressure and T from both BMP280s, MAX30100 IR, sensor-OK bits, DHT-11 T and RH, MQ-7 mV (fw 1.2; the heater fields are empty on rev C) |
-| `0x7F` STATUS | 10 s | 31 B | firmware version, boot count, frames sent / un-ACKed / dropped, I²C and SD errors, worst loop time, watchdog-reset flag |
+| `0x7F` STATUS | 10 s | 31 B | firmware version, boot count, frames sent / un-ACKed / dropped, I²C and SD errors, worst loop time, watchdog-reset flag, FC sensor-OK bits (`fc_ok`: bit0 LSM6DS3, bit1 LIS3MDL, bit2 LM75A, bit3 MS5611) |
 
 Average load: 23 + 20.5 + 7.75 + 3.1 ≈ **54 bytes/s ≈ 0.43 kbit/s**, about 18 % of the 2.4 kbit/s air rate. The spare capacity absorbs retries and slow ACKs.
 

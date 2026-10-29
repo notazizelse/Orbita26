@@ -25,6 +25,17 @@
 #define RADIO_ACK_BYTE    0x06        // comm board answers ACK after each transmitted block
 #define RADIO_ACK_TIMEOUT_MS 1500     // if no ACK, send the next frame anyway
 
+// 1 = this firmware drives UART1 -> IntroSat comm board itself (normal).
+// 0 = someone else's code owns the radio: we never touch UART1 and hand every frame to
+//     sp_frame_out() instead (see sp_hooks.h and radio_handoff/README.md).
+#define SP_OWN_RADIO      1
+
+// 1 = also write every frame to the FC's USB-C (UART2, PA3/PA2, CH340X) at 115200, so
+// ground/snailpulse_monitor.py can show all sensors on the bench with no radio at all.
+// Harmless in flight (nothing listens; ~55 bytes/s).
+#define SP_USB_MIRROR     1
+#define USB_BAUD          115200
+
 // Telemetry periods (ms). Air rate 2.4 kbit/s -> keep average well below ~250 B/s
 #define PERIOD_SNAIL_MS   2000        // heartbeat packet (20 waveform samples @10 Hz = 2 s)
 #define PERIOD_BASE_MS    2000        // FC service sensors

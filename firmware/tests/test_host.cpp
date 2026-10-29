@@ -205,7 +205,11 @@ static void test_radio() {
   FakeStream s;
   RadioLink<FakeStream> r(s, 0x06, 1500);
   uint8_t pl[10] = {1, 2, 3};
-  r.send(sp::PKT_STATUS, pl, 10); r.send(sp::PKT_STATUS, pl, 10);
+  r.send(sp::PKT_STATUS, pl, 10);
+  { uint8_t n = 0; const uint8_t *lf = r.last_frame(n);
+    CHECK(n == 17 && lf[0] == 0xAA && lf[1] == 0x55 && lf[2] == sp::PKT_STATUS && lf[3] == 0 && lf[4] == 10, "last_frame"); }
+  r.send(sp::PKT_STATUS, pl, 10);
+  { uint8_t n = 0; const uint8_t *lf = r.last_frame(n); CHECK(n == 17 && lf[3] == 1, "last_frame seq 1"); }
   r.poll(0);
   CHECK(s.tx.size() == 17, "first frame only %zu", s.tx.size());
   r.poll(100);
@@ -226,7 +230,7 @@ static void test_radio() {
   en.bmp_t_c100 = 2010; en.box2_press_pa = 101080; en.bmp2_t_c100 = 2030;
   CHECK(sizeof en == 36 && sp::ENV_V1_SIZE == 24, "ENV size %zu", sizeof en);
   sp::BasePayload ba = {}; ba.t_ms = 7000; ba.press_pa = 3000; ba.baro_t_c100 = -1234; ba.alt_dm = 238500; ba.acc_mg[2] = 1000;
-  sp::StatusPayload st = {}; st.t_ms = 8000; st.fw_version = 0x0100; st.boot_count = 3;
+  sp::StatusPayload st = {}; st.t_ms = 8000; st.fw_version = 0x0102; st.boot_count = 3; st.fc_ok = 0x0F;
   uint8_t fr[64]; size_t n;
   n = sp::build_frame(sp::PKT_SNAIL, 1, &sn, sizeof sn, fr); fwrite(fr, 1, n, f);
   fputc(0x06, f);                                        // stray byte between frames

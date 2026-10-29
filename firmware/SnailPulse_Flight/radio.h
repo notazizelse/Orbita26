@@ -20,9 +20,13 @@ class RadioLink {
     if (count_ == QN) { tail_ = (uint8_t)((tail_ + 1) % QN); count_--; dropped_++; dropped = true; }
     Slot &sl = q_[head_];
     sl.len = (uint8_t)sp::build_frame(type, seq_++, payload, len, sl.data);
+    last_ = head_;
     head_ = (uint8_t)((head_ + 1) % QN); count_++;
     return !dropped;
   }
+
+  // The frame bytes built by the last send() (valid until the next send()).
+  const uint8_t *last_frame(uint8_t &len) const { len = q_[last_].len; return q_[last_].data; }
 
   // Call every loop.
   void poll(uint32_t now_ms) {
@@ -51,7 +55,7 @@ class RadioLink {
   StreamT &s_;
   uint8_t ack_; uint32_t timeout_;
   Slot q_[QN];
-  uint8_t head_ = 0, tail_ = 0, count_ = 0, seq_ = 0;
+  uint8_t head_ = 0, tail_ = 0, count_ = 0, seq_ = 0, last_ = 0;
   bool waiting_ = false; uint32_t sent_at_ = 0;
   uint16_t sent_ = 0, missed_ = 0, dropped_ = 0;
 };

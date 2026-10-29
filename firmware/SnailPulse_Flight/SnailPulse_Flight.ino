@@ -29,6 +29,7 @@
 #include "thermal.h"
 #include "payload_sensors.h"
 #include "fc_baro.h"
+#include "sp_hooks.h"
 
 using namespace IntroStratLib;
 
@@ -40,6 +41,9 @@ typedef Uart FcSerial;
 typedef HardwareSerial FcSerial;
 #endif
 FcSerial RadioSerial(PIN_RADIO_RX, PIN_RADIO_TX);         // UART1 -> comm board
+#if SP_USB_MIRROR
+FcSerial UsbSerial(PA3, PA2);                             // UART2 -> CH340X -> FC USB-C
+#endif
 TwoWire FcWire(PIN_I2C1_SDA, PIN_I2C1_SCL);               // I2C1 service bus
 TwoWire PayloadWire(PIN_I2C4_SDA, PIN_I2C4_SCL);          // I2C4 payload bus
 
@@ -144,6 +148,25 @@ static int16_t clamp16(float v) { return (int16_t)(v > 32767 ? 32767 : (v < -327
 static int16_t c100(float v) { return isnan(v) ? (int16_t)-32768 : clamp16(v * 100.0f); }   // -32768 = invalid
 
 // ------------------------------ packets ------------------------------
+// Every frame goes out through here: comm board queue (UART1), USB-C copy, and the hook
+// for merged code (sp_hooks.h).
+void sendFrame(uint8_t type, const void *payload, uint8_t len) {
+  const uint8_t *f; uint8_t n;
+#if SP_OWN_RADIO
+  radio.send(type, payload, len);
+  f = radio.last_frame(n);
+#else
+  static uint8_t seq = 0;
+  static uint8_t buf[sp::LORA_PACKET];
+  n = (uint8_t)sp::build_frame(type, seq++, payload, len, buf);
+  f = buf;
+#endif
+#if SP_USB_MIRROR
+  UsbSerial.write(f, n);
+#endif
+  sp_frame_out(f, n);
+}
+
 void sendBase(uint32_t now) {
   sp::BasePayload p = {};
   p.t_ms = now;
@@ -156,7 +179,7 @@ void sendBase(uint32_t now) {
   }
   if (mag_ok) { p.mag_mgauss[0] = clamp16(mag.MX() * 1000); p.mag_mgauss[1] = clamp16(mag.MY() * 1000); p.mag_mgauss[2] = clamp16(mag.MZ() * 1000); }
   p.fc_t_x8 = lm75_ok ? (int16_t)fcTemp.GetTemperatureTimes8() : -32768;
-  radio.send(sp::PKT_BASE, &p, sizeof p);
+  sendFrame(sp::PKT_BASE, &p, sizeof p);
   char line[160];
   snprintf(line, sizeof line, "%lu,BASE,%lu,%d,%ld,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
            (unsigned long)now, (unsigned long)p.press_pa, p.baro_t_c100, (long)p.alt_dm,
@@ -177,7 +200,7 @@ void sendSnail(uint32_t now) {
   p.amp_counts = hb.amplitude();
   p.dc_counts = hb.dc_level();
   p.wave_n = hb.copy_wave(p.wave, sp::WAVE_N);
-  radio.send(sp::PKT_SNAIL, &p, sizeof p);
+  sendFrame(sp::PKT_SNAIL, &p, sizeof p);
   char line[96];
   snprintf(line, sizeof line, "%lu,SNAIL,%u,%u,%u,%u,%u,%u,%u", (unsigned long)now, p.bpm_x10, p.last_ibi_ms,
            p.beats_total, p.quality, p.flags, p.amp_counts, p.dc_counts);
@@ -203,7 +226,7 @@ void sendEnv(uint32_t now) {
   bool mq7_ok = mq7_mv != 0xFFFF && mq7_mv > 5 && mq7_mv < 3290;   // 0 V = wire off, 3.3 V = saturated
   p.sensors_ok = (sht.ok() ? 1 : 0) | (bmp.ok() ? 2 : 0) | (maxs.ok() ? 4 : 0) | (!isnan(heater_c) ? 8 : 0) | (sd_ok ? 16 : 0)
                | (dht.ok() ? 32 : 0) | (mq7_ok ? 64 : 0) | (bmp2.ok() ? 128 : 0);
-  radio.send(sp::PKT_ENV, &p, sizeof p);
+  sendFrame(sp::PKT_ENV, &p, sizeof p);
   char line[160];
   snprintf(line, sizeof line, "%lu,ENV,%d,%u,%lu,%d,%d,%u,%u,%u,%u,%d,%u,%u,%lu,%d", (unsigned long)now, p.box_t_c100, p.box_rh_c100,
            (unsigned long)p.box_press_pa, p.bmp_t_c100, p.heater_t_c100, p.heater_duty, p.heater_mode,
@@ -224,8 +247,9 @@ void sendStatus(uint32_t now) {
   p.sd_errors = sd_errors;
   p.loop_max_ms = (uint16_t)(loop_max_ms > 65535 ? 65535 : loop_max_ms);
   p.reset_cause = reset_cause;
+  p.fc_ok = (imu_ok ? 1 : 0) | (mag_ok ? 2 : 0) | (lm75_ok ? 4 : 0) | (baro.ok() ? 8 : 0);
   loop_max_ms = 0;
-  radio.send(sp::PKT_STATUS, &p, sizeof p);
+  sendFrame(sp::PKT_STATUS, &p, sizeof p);
 }
 
 // ------------------------------ setup / loop ------------------------------
@@ -241,7 +265,12 @@ void setup() {
 
   if (IWatchdog.isReset(true)) reset_cause = 1;
 
+#if SP_OWN_RADIO
   RadioSerial.begin(RADIO_BAUD, SERIAL_8E1);
+#endif
+#if SP_USB_MIRROR
+  UsbSerial.begin(USB_BAUD);
+#endif
   analogReadResolution(ADC_BITS);
 
   FcWire.begin();
@@ -270,6 +299,13 @@ void setup() {
   sampleTimer->attachInterrupt(onSampleTick);
   sampleTimer->resume();
 
+  sp_ext_setup();   // merged code (sp_hooks.h); runs before the watchdog starts
+
+#ifdef DBGMCU_APB4FZ1_DBG_IWDG1
+  // Pause the watchdog while a debugger has the core halted (no effect in flight),
+  // so stopping at a breakpoint doesn't reset the board after 4 s.
+  DBGMCU->APB4FZ1 |= DBGMCU_APB4FZ1_DBG_IWDG1;
+#endif
   IWatchdog.begin(4000000);   // 4 s: a hung I2C bus or SD card resets the MCU
   sendStatus(millis());
 }
@@ -324,7 +360,10 @@ void loop() {
   if (now - tBase   >= PERIOD_BASE_MS)   { tBase = now;   sendBase(now); }
   if (now - tEnv    >= PERIOD_ENV_MS)    { tEnv = now;    sendEnv(now); }
   if (now - tStatus >= PERIOD_STATUS_MS) { tStatus = now; sendStatus(now); }
+#if SP_OWN_RADIO
   radio.poll(now);
+#endif
+  sp_ext_loop(now);   // merged code (sp_hooks.h), must not block
 
   // 5) SD flush once a second
   if (now - tFlush >= 1000) { tFlush = now; sdFlush(); }
