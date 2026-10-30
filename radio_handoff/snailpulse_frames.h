@@ -93,7 +93,7 @@ typedef struct SP_PACKED {   /* 36 bytes (firmware before 1.2 sent only the firs
   uint8_t  rsv[3];
   int16_t  dht_t_c100;       /* DHT-11 temperature, 0.01 C */
   uint16_t dht_rh_c100;      /* DHT-11 humidity, 0.01 % */
-  uint16_t mq7_mv;           /* MQ-7 output, mV */
+  uint16_t mq7_mv;           /* MQ-7 output at the module, mV (0-5000 since firmware 1.4: 5 V supply) */
   uint32_t box2_press_pa;    /* second BMP280: removed in firmware 1.3, always 0 */
   int16_t  bmp2_t_c100;      /* second BMP280: removed in firmware 1.3, always -32768 */
 } sp_env_t;

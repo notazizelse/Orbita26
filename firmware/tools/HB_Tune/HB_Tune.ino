@@ -17,6 +17,8 @@
 // sketch leaves PC6 alone (it used to hold it LOW, which blocks the DHT-11) and plots the
 // MQ-7 voltage instead of the old heater thermistor. For a full sensor check use SensorTest.
 // Snail 2 (MAX30100 on I2C4) is not shown here: use SensorTest, key 'm'.
+// 30 Oct: the MQ-7 runs on +5 V with a 10k/20k divider before PB1; mq7_mV is scaled back to the module.
+#define MQ7_DIV_X100  150      // (10k + 20k) / 20k = 1.5. No divider: 100
 // Stop with one clear message if the IDE is set to another chip (otherwise: dozens of "PA10 not declared").
 #if !defined(STM32H750xx)
 #error "Wrong board. Tools > Board > STM32 MCU based boards > Generic STM32H7 Series, then Tools > Board part number > Generic H750VBTx"
@@ -48,5 +50,5 @@ void loop() {
   UsbSerial.print("snail1_tcrt5000:"); UsbSerial.print(hb);
   UsbSerial.print(",vref:"); UsbSerial.print((int)VREF_COUNTS);
   UsbSerial.print(",snail1_dc:"); UsbSerial.print((int)dc);
-  UsbSerial.print(",mq7_mV:"); UsbSerial.println((int)(mq7 * 3300L / 4095));
+  UsbSerial.print(",mq7_mV:"); UsbSerial.println((int)(mq7 * 3300L * MQ7_DIV_X100 / 100 / 4095));   // at the module
 }

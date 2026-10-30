@@ -32,6 +32,7 @@
 #include "protocol.h"
 #include "radio.h"
 #include "heartbeat.h"
+#include "mq7_scale.h"
 #include "optical_pulse.h"
 #include "thermal.h"
 #include "payload_sensors.h"
@@ -65,7 +66,7 @@ BMP280   bmp(PayloadWire, ADDR_BMP280);      // SDO -> GND
 BMP280   bmp2(PayloadWire, ADDR_BMP280_B);   // second one, SDO -> VCC
 #endif
 MAX30100 maxs(PayloadWire, ADDR_MAX30100);   // second pulse sensor (optical)
-DHT11    dht(PIN_DHT11, DHT11_PERIOD_MS);
+DHT11    dht(PIN_DHT11, DHT11_PERIOD_MS, !DHT11_VCC_5V);   // 5 V module: no internal pull-up on PC6
 
 RadioLink<FcSerial> radio(RadioSerial, RADIO_ACK_BYTE, RADIO_ACK_TIMEOUT_MS);
 HeartbeatDetector hb(HB_SAMPLE_HZ, HB_WAVE_DECIM);   // pulse sensor 1: TCRT5000 -> amplifier -> PB0
@@ -149,7 +150,8 @@ void sdFlush() {
 // ------------------------------ state ------------------------------
 bool imu_ok = false, mag_ok = false, lm75_ok = false;
 float heater_c = NAN;
-uint16_t mq7_mv = 0xFFFF;      // 1 s average of MQ-7 AO, mV (0xFFFF = disabled / no data yet)
+uint16_t mq7_mv = 0xFFFF;      // 1 s average of MQ-7 AO at the module, mV (0xFFFF = disabled / no data yet)
+uint16_t mq7_pin_mv = 0;       // the same, measured at PB1 (after the divider)
 uint8_t reset_cause = 0;
 uint32_t loop_max_ms = 0, ledOffAt = 0;
 uint32_t tSnail = 0, tBase = 0, tEnv = 0, tStatus = 0, tSlow = 0, tFlush = 0, tMax = 0, tMaxRetry = 0;
@@ -252,7 +254,7 @@ void sendEnv(uint32_t now) {
   p.box2_press_pa = 0;
   p.bmp2_t_c100 = -32768;
 #endif
-  bool mq7_ok = mq7_mv != 0xFFFF && mq7_mv > 5 && mq7_mv < 3290;   // 0 V = wire off, 3.3 V = saturated
+  bool mq7_ok = mq7_mv != 0xFFFF && mq7_pb1_ok(mq7_pin_mv);   // PB1 at 0 V = wire off, at 3.3 V = off the scale
   p.sensors_ok = (sht.ok() ? 1 : 0) | (bmp.ok() ? 2 : 0) | (maxs.ok() ? 4 : 0) | (!isnan(heater_c) ? 8 : 0) | (sd_ok ? 16 : 0)
                | (dht.ok() ? 32 : 0) | (mq7_ok ? 64 : 0) | (bmp2_ok ? 128 : 0);
   sendFrame(sp::PKT_ENV, &p, sizeof p);
@@ -399,7 +401,10 @@ void loop() {
     noInterrupts();
     uint32_t s = mq7_sum; uint16_t n = mq7_n; mq7_sum = 0; mq7_n = 0;
     interrupts();
-    if (n) mq7_mv = (uint16_t)((s / n) * 3300UL / ((1u << ADC_BITS) - 1));
+    if (n) {
+      mq7_pin_mv = (uint16_t)mq7_pb1_mv(s / n, (1u << ADC_BITS) - 1, 3300);
+      mq7_mv = mq7_ao_mv(mq7_pin_mv, MQ7_DIV_TOP_OHM, MQ7_DIV_BOT_OHM);
+    }
 #endif
   }
 

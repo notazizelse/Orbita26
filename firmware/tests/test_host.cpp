@@ -17,6 +17,7 @@
 #include "dht11_decode.h"
 #include "max30100_fifo.h"
 #include "optical_pulse.h"
+#include "mq7_scale.h"
 
 static int fails = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -197,6 +198,19 @@ static void test_dht11() {
 }
 
 // ---------------------------------------------------------------- MAX30100 FIFO
+// MQ-7 on 5 V: 10k/20k divider before PB1, reading scaled back to the module (fw 1.4)
+static void test_mq7_scale() {
+  CHECK(mq7_pb1_mv(4095, 4095, 3300) == 3300 && mq7_pb1_mv(0, 4095, 3300) == 0, "MQ-7 ADC -> mV");
+  CHECK(mq7_pb1_mv(2048, 4095, 3300) == 1650, "MQ-7 mid-scale %u", (unsigned)mq7_pb1_mv(2048, 4095, 3300));
+  CHECK(mq7_ao_mv(3300, 10000, 20000) == 4950, "5 V module: 3.30 V at PB1 = 4.95 V at AO");
+  CHECK(mq7_ao_mv(1000, 10000, 20000) == 1500, "1.0 V at PB1 = 1.5 V at AO");
+  CHECK(mq7_ao_mv(1234, 0, 20000) == 1234, "no divider: unchanged");
+  CHECK(mq7_ao_mv(60000, 10000, 20000) == 0xFFFE, "clamped below the 'disabled' code 0xFFFF");
+  CHECK(!mq7_pb1_ok(0) && !mq7_pb1_ok(3295) && mq7_pb1_ok(700), "MQ-7 ok range at PB1");
+  printf("MQ-7 5 V divider: PB1 1.00 V -> AO %u mV, PB1 3.30 V -> AO %u mV\n",
+         (unsigned)mq7_ao_mv(1000, 10000, 20000), (unsigned)mq7_ao_mv(3300, 10000, 20000));
+}
+
 static void test_max30100_fifo() {
   bool lost = true;
   CHECK(max30100_waiting(0, 0, 0, lost) == 0 && !lost, "max fifo: empty");
@@ -297,6 +311,7 @@ int main() {
   test_thermal();
   test_sensors();
   test_dht11();
+  test_mq7_scale();
   test_max30100_fifo();
   test_optical_pulse();
   test_radio();

@@ -47340,8 +47340,8 @@ f_c = 1 / (2π · 5 kΩ · 10 µF) = 3.2 Hz</div>
           <li><button class="chip" data-part="J5">J5 3-pin</button><span class="d">Power from the FC. The small diamond symbols next to it are PWR_FLAGs: they aren't parts, they just tell KiCad's electrical rule check that these nets are powered from outside the board.</span></li>
           <li><button class="chip" data-part="C10">C10 10 µF</button><span class="d">Bulk capacitor on +3.3&nbsp;V. It covers slower load changes (like the MAX30100's pulsed LEDs) that the small 100&nbsp;nF capacitors can't.</span></li>
         </ul>
-        <div class="math">load: +5 V ≈ 17 mA (the IR LED)   ·   +3.3 V < 25 mA without the MQ-7
-MQ-7 heater ≈ 33 Ω: 3.3 V / 33 Ω ≈ 100 mA (0.33 W) → +3.3 V total ≈ 125 mA
+        <div class="math">load: +3.3 V < 25 mA   ·   +5 V ≈ 17 mA (the IR LED) + the MQ-7 and DHT-11 (since 30 Oct)
+MQ-7 heater ≈ 33 Ω: 5 V / 33 Ω ≈ 150 mA (0.76 W) → +5 V total ≈ 170 mA
 FC payload channels allow 3 A each → we use about 4 %</div>
       </article>
 
@@ -47362,19 +47362,19 @@ FC payload channels allow 3 A each → we use about 4 %</div>
 
       <article class="stage" id="c-new" tabindex="0" data-parts="J6" data-title="DHT-11 and MQ-7 (added 29 Oct)">
         <div class="stage-head"><h3>Added 29 Oct: DHT-11 and MQ-7 on J6 pins 2 and 3</h3></div>
-        <p>Rev C freed PB1 and PC6 when the heater was dropped. The two new modules use them. Both run from <span class="net">+3V3</span> and <span class="net">GND</span> on the board, and each sends one signal wire to the flight controller.</p>
+        <p>Rev C freed PB1 and PC6 when the heater was dropped. The two new modules use them. <b>Since 30 Oct both run from <span class="net">+5V</span></b> and <span class="net">GND</span> on the board, and each sends one signal wire to the flight controller.</p>
         <div class="tablewrap"><table class="pins"><thead><tr><th>Module pin</th><th>Goes to</th><th>FC pin</th><th>Notes</th></tr></thead><tbody>
-          <tr><td>DHT-11 VCC (+)</td><td><span class="net">+3V3</span></td><td class="mono">+3V3_IS</td><td>DHT-11 works from 3.3 to 5.5 V</td></tr>
+          <tr><td>DHT-11 VCC (+)</td><td><span class="net">+5V</span></td><td class="mono">+5V_IS</td><td>DHT-11 works from 3.3 to 5.5 V; 5 V gives it more margin on long wires</td></tr>
           <tr><td>DHT-11 GND (−)</td><td><span class="net">GND</span></td><td class="mono">GND</td><td></td></tr>
-          <tr><td>DHT-11 DATA (S / OUT)</td><td><span class="net">DHT_DATA</span> → J6.3</td><td class="mono">PC6</td><td>needs a 4.7–10 kΩ pull-up to +3.3 V. 3-pin modules have one; a bare 4-pin sensor doesn't (pin 3 of a bare one is NC)</td></tr>
-          <tr><td>MQ-7 VCC</td><td><span class="net">+3V3</span></td><td class="mono">+3V3_IS</td><td>feeds its heater: ≈ 100 mA</td></tr>
+          <tr><td>DHT-11 DATA (S / OUT)</td><td><span class="net">DHT_DATA</span> → J6.3</td><td class="mono">PC6</td><td>needs a 4.7–10 kΩ pull-up to its VCC (5 V). 3-pin modules have one; a bare 4-pin sensor doesn't (pin 3 of a bare one is NC). PC6 is 5 V-tolerant as a digital input, so DATA at 5 V is safe; the firmware keeps the STM32's own 3.3 V pull-up off</td></tr>
+          <tr><td>MQ-7 VCC</td><td><span class="net">+5V</span></td><td class="mono">+5V_IS</td><td>feeds its heater: ≈ 150 mA</td></tr>
           <tr><td>MQ-7 GND</td><td><span class="net">GND</span></td><td class="mono">GND</td><td></td></tr>
-          <tr><td>MQ-7 AO</td><td><span class="net">MQ7_AO</span> → J6.2</td><td class="mono">PB1</td><td>analog, 0–3.3 V because the module runs on 3.3 V</td></tr>
+          <tr><td>MQ-7 AO</td><td><span class="net">MQ7_AO</span> → 10 kΩ → J6.2, 20 kΩ to GND</td><td class="mono">PB1</td><td>analog, 0–5 V at the module, 0–3.33 V at PB1 after the divider</td></tr>
           <tr><td>MQ-7 DO</td><td>not connected</td><td>—</td><td>on/off comparator output, not needed</td></tr>
         </tbody></table></div>
-        <div class="math">MQ-7 on 3.3 V: heater power = 3.3² / 33 Ω ≈ 0.33 W  (vs 0.76 W at its rated 5 V → ~45 %)
-→ the sensor still reacts to CO and other gases, but its ppm curve is not calibrated</div>
-        <p class="why"><span class="lbl">If you move the MQ-7 to 5 V</span>Its AO can then reach 5 V, and PB1 is not 5 V-tolerant in analog mode. Put a divider in the AO wire first: 10 kΩ from AO to PB1 and 20 kΩ from PB1 to GND, which scales 5 V down to 3.3 V. Then set <code>MQ7_VCC 5.0f</code> in the test sketch.</p>
+        <div class="math">MQ-7 on 5 V: heater power = 5² / 33 Ω ≈ 0.76 W (its rated power) → the datasheet ppm curve applies after warm-up
+divider: V(PB1) = V(AO) × 20 kΩ / (10 kΩ + 20 kΩ) → 5 V at AO = 3.33 V at PB1; the firmware multiplies by 1.5</div>
+        <p class="why"><span class="lbl">Why the divider is not optional</span>On 5 V the MQ-7's AO can reach 5 V, and PB1 is not 5 V-tolerant in analog mode: without the divider a strong gas reading can damage the flight controller. Check it with the module powered: PB1 to GND must always read below 3.3 V. The divider values are in <code>config.h</code> (<code>MQ7_DIV_TOP_OHM</code>, <code>MQ7_DIV_BOT_OHM</code>) and at the top of SensorTest.</p>
       </article>
 
       <article class="stage" id="c-sensor" tabindex="0" data-parts="J1 U1" data-title="TCRT5000 cable">

@@ -20,8 +20,8 @@
 //  What is tested (wiring: hardware/perfboard/SnailPulse_perfboard_build.html, steps 9-11):
 //    SnailPulse payload
 //      PB0  SNAIL 1 pulse: TCRT5000 -> amplifier (HB_ADC)   analog
-//      PB1  MQ-7 module AO (CO gas)                   analog, module VCC on +3.3 V
-//      PC6  DHT-11 DATA                               digital, sensor VCC on +3.3 V
+//      PB1  MQ-7 module AO (CO gas)                   analog, module VCC on +5 V, AO through a 10k/20k divider
+//      PC6  DHT-11 DATA                               digital, sensor VCC on +5 V (PC6 is 5 V-tolerant)
 //      I2C4 PD13 SDA / PD12 SCL:
 //           0x40 SHT21 (GY-21)  0x57 MAX30100 = SNAIL 2 pulse  0x76 BMP280 (SDO->GND)
 //           (the second BMP280 at 0x77 was removed on 30 Oct)
@@ -42,10 +42,18 @@
 #define PIN_MQ7_AO    PB1      // MQ-7 analog out    (J6.2, free since rev C)
 #define PIN_DHT       PC6      // DHT-11 data        (J6.3, free since rev C)
 #define PIN_LED       PE10     // FCM user LED
-#define MQ7_VCC       3.3f     // what the MQ-7 module VCC is wired to (3.3 or 5.0)
-#define MQ7_RL_OHM    1000.0f  // MQ-7 module load resistor: measure AO<->GND power off. "102" = 1000, "103" = 10000
+#define MQ7_VCC       5.0f     // what the MQ-7 module VCC is wired to (3.3 or 5.0)
+#define MQ7_RL_OHM    1000.0f  // MQ-7 module load resistor: "102" on it = 1000, "103" = 10000 (unplug the divider to measure AO<->GND)
+#define MQ7_DIV_TOP   10000.0f // divider in the AO wire: AO -> 10k -> PB1 -> 20k -> GND. Needed on 5 V: PB1 is not 5 V-tolerant
+#define MQ7_DIV_BOT   20000.0f //   as an analog input. No divider (3.3 V module only): MQ7_DIV_TOP 0
+#define DHT_VCC_5V    1        // 1 = DHT-11 on +5 V: its pull-up goes to 5 V, so PC6's internal pull-up (to 3.3 V) stays off
 #define MIRROR_UART1  0        // 1 = also print on UART1 (PA10/PA9, 115200 8E1): Bluetooth module / comm board
 #define ADC_VREF      3.3f
+#if DHT_VCC_5V
+#define DHT_IDLE      INPUT
+#else
+#define DHT_IDLE      INPUT_PULLUP
+#endif
 
 FcSerial UsbSerial(PA3, PA2);             // FCM USB Type-C
 FcSerial Uart1(PA10, PA9);                // only used if MIRROR_UART1 = 1
@@ -361,7 +369,7 @@ static int dhtRead(float &t, float &rh) {
   uint8_t d[5] = {0, 0, 0, 0, 0};
   flushOut();                                              // no UART interrupts while timing bits
   pinMode(PIN_DHT, OUTPUT); digitalWrite(PIN_DHT, LOW); delay(20);   // start signal >= 18 ms
-  pinMode(PIN_DHT, INPUT_PULLUP);
+  pinMode(PIN_DHT, DHT_IDLE);
   int r = 0;
   if (waitWhile(HIGH, 250) < 0) r = 1;                     // sensor pulls low 20-40 us later
   else if (waitWhile(LOW, 150) < 0 || waitWhile(HIGH, 150) < 0) r = 2;   // 80 us low, 80 us high
@@ -388,7 +396,7 @@ static void testDHT11() {
     if (tries) delay(1200);                                // DHT-11: at most one reading per second
     e = dhtRead(dhtT, dhtRH);
   }
-  pinMode(PIN_DHT, INPUT_PULLUP);
+  pinMode(PIN_DHT, DHT_IDLE);
   if (e == 0) {
     bool ok = dhtT >= 0 && dhtT <= 50 && dhtRH >= 5 && dhtRH <= 95;
     report("DHT-11 PC6", ok ? R_PASS : R_WARN, "T %s C  RH %s %%", ff(dhtT, 1), ff(dhtRH, 0));
@@ -397,28 +405,44 @@ static void testDHT11() {
   dhtT = dhtRH = NAN;
   static const char *why[] = {"", "no response at all", "handshake broke off", "data bits cut off", "checksum wrong"};
   report("DHT-11 PC6", R_FAIL, "%s (DATA idle %s)", why[e], idle ? "HIGH" : "LOW");
-  if (!idle) hint("DATA idles LOW: no pull-up (bare 4-pin DHT-11 needs 10k DATA->3.3 V), DATA on GND, or no power");
-  else if (e == 1) hint("check DHT VCC = 3.3 V, GND, and that DATA really goes to PC6");
-  else hint("long or noisy wire: keep it under ~1 m, add a 4.7-10k pull-up DATA->3.3 V");
+  if (!idle) hint("DATA idles LOW: no pull-up (bare 4-pin DHT-11 needs 10k DATA->its VCC), DATA on GND, or no power");
+  else if (e == 1) hint(DHT_VCC_5V ? "check DHT VCC = 5 V, GND, and that DATA really goes to PC6" : "check DHT VCC = 3.3 V, GND, and that DATA really goes to PC6");
+  else hint("long or noisy wire: keep it under ~1 m, add a 4.7-10k pull-up DATA->its VCC");
 }
 
 // ================================ MQ-7 ================================
-static float mq7Rs(float v) { return v > 0.005f ? MQ7_RL_OHM * (MQ7_VCC - v) / v : NAN; }
+static_assert(MQ7_VCC < 3.6f || MQ7_DIV_TOP > 0, "MQ-7 on 5 V needs the AO divider (10k AO->PB1, 20k PB1->GND): 5 V on PB1 can damage the STM32");
+// PB1 voltage -> AO voltage at the module (undo the divider)
+static float mq7Ao(float vPin) { return MQ7_DIV_TOP > 0 ? vPin * (MQ7_DIV_TOP + MQ7_DIV_BOT) / MQ7_DIV_BOT : vPin; }
+// Sensor resistance from the AO voltage. The divider sits in parallel with the module's load resistor.
+static float mq7Rs(float vAo) {
+  float rl = MQ7_DIV_TOP > 0 ? MQ7_RL_OHM * (MQ7_DIV_TOP + MQ7_DIV_BOT) / (MQ7_RL_OHM + MQ7_DIV_TOP + MQ7_DIV_BOT) : MQ7_RL_OHM;
+  return vAo > 0.005f ? rl * (MQ7_VCC - vAo) / vAo : NAN;
+}
 static void testMQ7() {
-  float swing;
-  bool driven = pinDriven(PIN_MQ7_AO, swing);
-  float v = adcVolts(PIN_MQ7_AO, 128);
-  if (!driven) {
-    report("MQ-7 AO PB1", R_FAIL, "PB1 is floating (swing %s V)", ff(swing));
-    hint("AO wire not reaching PB1, or module not powered (its power LED should be on)");
-    return;
+  float v = adcVolts(PIN_MQ7_AO, 128), ao = mq7Ao(v);
+  if (MQ7_DIV_TOP > 0) {
+    // the divider's 20k holds PB1 at 0 V when the AO wire is off, so "floating" can't happen here
+    if (v < 0.02f) {
+      report("MQ-7 AO PB1", R_FAIL, "PB1 at %s V", ff(v, 3));
+      hint("AO wire or the 10k divider resistor not reaching PB1, or module not powered (its power LED should be on)");
+      return;
+    }
+  } else {
+    float swing;
+    if (!pinDriven(PIN_MQ7_AO, swing)) {
+      report("MQ-7 AO PB1", R_FAIL, "PB1 is floating (swing %s V)", ff(swing));
+      hint("AO wire not reaching PB1, or module not powered (its power LED should be on)");
+      return;
+    }
   }
   if (v > 3.2f) {
-    report("MQ-7 AO PB1", R_WARN, "%s V: top of the range", ff(v));
-    hint("gas present, or AO/VCC swapped. On 5 V the module needs a divider before PB1!");
+    report("MQ-7 AO PB1", R_WARN, "PB1 %s V: top of the range", ff(v));
+    hint(MQ7_VCC > 3.6f ? "gas present, or the divider is missing/wrong: measure PB1, it must stay below 3.3 V!"
+                        : "gas present, or AO/VCC swapped");
     return;
   }
-  report("MQ-7 AO PB1", R_PASS, "%s V  Rs %s kOhm (RL %s)", ff(v, 3), ff(mq7Rs(v) / 1000.0f, 1), ff(MQ7_RL_OHM, 0));
+  report("MQ-7 AO PB1", R_PASS, "AO %s V (PB1 %s V)  Rs %s kOhm (RL %s)", ff(ao, 3), ff(v, 3), ff(mq7Rs(ao) / 1000.0f, 1), ff(MQ7_RL_OHM, 0));
   if (millis() < 180000UL) hint("heater still warming up: the value drifts for ~3 min (longer on a new sensor)");
   if (MQ7_VCC < 4.0f) hint("on 3.3 V the heater runs at ~45 % power: reacts to gas, but ppm values are not calibrated");
 }
@@ -611,9 +635,9 @@ static void liveLine() {
 
   float t, rh;
   if (dhtRead(t, rh) == 0) P(" DHT %sC %s%% |", ff(t, 1), ff(rh, 0)); else P(" DHT -- |");
-  pinMode(PIN_DHT, INPUT_PULLUP);
-  float v = adcVolts(PIN_MQ7_AO);
-  P(" MQ7 %sV Rs %sk |", ff(v, 3), ff(mq7Rs(v) / 1000.0f, 1));
+  pinMode(PIN_DHT, DHT_IDLE);
+  float v = mq7Ao(adcVolts(PIN_MQ7_AO));
+  P(" MQ7 AO %sV Rs %sk |", ff(v, 3), ff(mq7Rs(v) / 1000.0f, 1));
   P(" SNAIL1 TCRT5000 %sV |", ff(adcVolts(PIN_HB_ADC, 16), 3));
   uint16_t ir;
   if (haveMax && maxReadIr(ir)) P(" SNAIL2 MAX30100 IR %u\r\n", ir); else P(" SNAIL2 MAX30100 --\r\n");
@@ -621,7 +645,7 @@ static void liveLine() {
 
 void setup() {
   pinMode(PIN_LED, OUTPUT);
-  pinMode(PIN_DHT, INPUT_PULLUP);        // PC6 was the heater PWM in rev B: this sketch never drives it high
+  pinMode(PIN_DHT, DHT_IDLE);            // PC6 was the heater PWM in rev B: this sketch never drives it high
   UsbSerial.begin(115200);
 #if MIRROR_UART1
   Uart1.begin(115200, SERIAL_8E1);
@@ -651,7 +675,7 @@ void loop() {
   if (viewMode == M_LIVE && now - tLive >= 2000) { tLive = now; liveLine(); }
   if (viewMode == M_PLOT && now - tPlot >= 20) {           // 50 Hz, Serial Plotter format
     tPlot = now;
-    P("snail1_tcrt5000:%d,mq7_mV:%d\r\n", analogRead(PIN_HB_ADC), (int)(analogRead(PIN_MQ7_AO) * 3300L / 4095));
+    P("snail1_tcrt5000:%d,mq7_mV:%d\r\n", analogRead(PIN_HB_ADC), (int)(mq7Ao(analogRead(PIN_MQ7_AO) * ADC_VREF / 4095.0f) * 1000.0f));
   }
   if (viewMode == M_PLOT_MAX && now - tPlot >= 40) {        // MAX30100 FIFO: ~4 new samples every 40 ms
     tPlot = now;

@@ -22,6 +22,7 @@ firmware/
 │   ├── thermal.h/.cpp        thermistor maths + heater controller
 │   ├── payload_sensors.*     SHT21, BMP280 (0x76), MAX30100 drivers (I2C4) + DHT-11 (PC6)
 │   ├── dht11_decode.h        DHT-11 bit/checksum decoding (unit-tested)
+│   ├── mq7_scale.h           MQ-7 reading through the 5 V divider (unit-tested)
 │   ├── fc_baro.h, ms5611_comp.h   non-blocking MS5611 with correct cold compensation
 │   ├── bmp280_comp.h         Bosch compensation formulas
 │   └── radio.h               ACK-gated frame queue
@@ -76,4 +77,4 @@ python ../../ground/snailpulse_ground.py --file frames.bin --out /tmp/gs   # dec
 
 These tests check: the CRC, the frame parser (with garbage and corrupted frames), the beat detector, NTC maths (40 °C → 1.143 V), heater fallbacks, a 3-hour thermal simulation at −40 °C, BMP280 and MS5611 against the datasheet examples, ISA altitude, and the ACK/timeout/overflow logic of the radio queue.
 
-> Not yet verified on real hardware: firmware 1.3 (30 Oct; two snails, one BMP280) passes the PC tests; firmware 1.2 (29 Oct) **compiles** for the Generic H750VBTx with STM32 board package 2.12.0, IntroStratLib, STM32SD 1.5.0 and FatFs 4.0.4 (83 KB of 128 KB flash, no warnings in our code), and the PC tests pass, but it has **not run on the board yet**. First bench run: flash `tools/SensorTest` and get 0 FAIL, then flash this sketch, check that STATUS says fw 1.3 on the ground station and that ENV shows ok=0x77.
+> Not yet verified on real hardware: firmware 1.4 (30 Oct; two snails, one BMP280, DHT-11 and MQ-7 on 5 V) passes the PC tests; firmware 1.2 (29 Oct) **compiles** for the Generic H750VBTx with STM32 board package 2.12.0, IntroStratLib, STM32SD 1.5.0 and FatFs 4.0.4 (83 KB of 128 KB flash, no warnings in our code), and the PC tests pass, but it has **not run on the board yet**. First bench run: flash `tools/SensorTest` and get 0 FAIL, then flash this sketch, check that STATUS says fw 1.4 on the ground station and that ENV shows ok=0x77.

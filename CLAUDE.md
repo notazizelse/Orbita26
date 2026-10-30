@@ -6,13 +6,13 @@ Read this first, then `HANDOFF.md` for where the work stands.
 
 A payload for the IntroSat.Platform 3U CubeSat (Orbita 2026 stratospheric flight). An IR sensor on a live snail's shell feeds an analog band-pass amplifier; the satellite's **flight controller** (FC, STM32H750VBT6) counts heartbeats and radios them down over LoRa, plus box environment sensors. The payload board is a **perfboard with no processor**: all code runs on the FC.
 
-Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11 and an MQ-7 were added. Since fw 1.3 (30 Oct) there are **two snails**: snail 1 = TCRT5000 → amplifier → PB0, snail 2 = MAX30100 on I²C4. The second BMP280 (0x77) was dropped again.
+Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11 and an MQ-7 were added. Since fw 1.3 (30 Oct) there are **two snails**: snail 1 = TCRT5000 → amplifier → PB0, snail 2 = MAX30100 on I²C4. The second BMP280 (0x77) was dropped again. Since fw 1.4 the DHT-11 and the MQ-7 run on **+5 V** (MQ-7 AO through a 10k/20k divider).
 
 ## Map
 
 | Path | What |
 |---|---|
-| `firmware/SnailPulse_Flight/` | Flight firmware (fw 1.3). `config.h` = every pin, address, period |
+| `firmware/SnailPulse_Flight/` | Flight firmware (fw 1.4). `config.h` = every pin, address, period |
 | `firmware/tools/SensorTest/` | Bench sketch: PASS/FAIL for every sensor over the FC USB-C (115200) |
 | `firmware/tools/HB_Tune/` | Streams PB0 (+ MQ-7) to the Serial Plotter for tuning RV3 |
 | `firmware/tests/test_host.cpp` | PC unit tests for the Arduino-free code |
@@ -34,8 +34,8 @@ Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11 and an
 | Signal | FC pin | Notes |
 |---|---|---|
 | Snail 1 heartbeat amp (HB_ADC) | PB0 (ADC) | J6.1, sampled 50 Hz in the TIM6 ISR |
-| MQ-7 AO | PB1 (ADC) | J6.2. Module on 3.3 V. **PB1 is not 5 V-tolerant as an analog input** |
-| DHT-11 DATA | PC6 | J6.3. Was the heater PWM in rev B: never drive it as an output now |
+| MQ-7 AO | PB1 (ADC) | J6.2. Module on **5 V**; AO → 10 kΩ → PB1 → 20 kΩ → GND. **PB1 is not 5 V-tolerant as an analog input**: never remove the divider |
+| DHT-11 DATA | PC6 | J6.3. Module on 5 V, its pull-up to 5 V (PC6 is 5 V-tolerant, idles as a plain input). Was the heater PWM in rev B: never drive it high |
 | I²C4 SDA / SCL | PD13 / PD12 | payload bus |
 | I²C1 SDA / SCL | PB7 / PB6 | FC service bus, read only for us |
 | Radio UART1 | PA10 / PA9 | 115200 8E1 to the comm board, ACK 0x06 |
@@ -68,7 +68,7 @@ Before claiming firmware work is done: PC tests pass, the ground script decodes 
 
 - **Only the TIM6 ISR calls `analogRead()`** in the flight code (PB0 at 50 Hz, PB1 at 5 Hz). `loop()` never touches the ADC.
 - **Never block `loop()`**: sensors are state machines; the 4 s watchdog resets the MCU otherwise. The DHT-11 bit read (~5 ms) starts right after an ISR tick (`last_tick_us`) so the 50 Hz interrupt can't stretch a bit.
-- **Maths stays Arduino-free** (`heartbeat`, `thermal`, `protocol`, `*_comp.h`, `dht11_decode.h`, `max30100_fifo.h`, `optical_pulse.h`) so `test_host.cpp` can test it. New maths gets a test there.
+- **Maths stays Arduino-free** (`heartbeat`, `thermal`, `protocol`, `*_comp.h`, `dht11_decode.h`, `max30100_fifo.h`, `optical_pulse.h`, `mq7_scale.h`) so `test_host.cpp` can test it. New maths gets a test there.
 - **Packet changes touch these places together:** the struct in `protocol.h` (+ its `static_assert` size), `ground/snailpulse_ground.py` (format string + old-size fallbacks), the checks in `ground/snailpulse_monitor.py` (`evaluate`, `demo_frames`), `radio_handoff/snailpulse_frames.h` (structs + size checks) and its README test frames, the frame dump in `test_host.cpp`, and the packet tables in `firmware/README.md` and `docs/Firmware_and_Integration.md`. Only **append** fields so old logs still decode. Every frame must fit one 58-byte LoRa packet (payload ≤ 51 B).
 - **Wiring changes touch the guides together:** the perfboard guide (layout JSON `L`, `NETS`, `WIRE`, `OFF`, `STEPS` + Requirements), the walkthrough text, `README.md`, and `config.h`. The perfboard guide stores ticked checks in `localStorage` keyed by step number; inserting a step needs the migration pattern already in the file.
 - Every frame leaves through `sendFrame()` in the sketch: comm board queue (`SP_OWN_RADIO`), USB-C copy (`SP_USB_MIRROR`, UART2 PA3/PA2) and the `sp_frame_out()` hook (`sp_hooks.h`, weak defaults in `sp_hooks.cpp`). Merged code (radio technician) plugs in through those hooks, never by editing `loop()`.

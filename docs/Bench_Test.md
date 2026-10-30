@@ -71,8 +71,8 @@ It opens `http://localhost:8765`. Every sensor gets a row with **OK / WARN / FAI
 |---|---|
 | Data in: WAITING | Wrong port or baud, FC not powered, or the code is not the flight firmware (SensorTest prints text: see the Console panel) |
 | FAIL on one I²C4 sensor (SHT21, BMP280, MAX30100) | Its address wiring (BMP280 SDO → GND) or the I²C4 wires PD13/PD12; SensorTest's scan shows who answers |
-| DHT-11 FAIL now and then | One missed reading is normal; FAIL all the time = DATA not on PC6 or no 3.3 V |
-| MQ-7 FAIL | 0 V: wire off or no power. 3.3 V: saturated. It also needs 1–2 min to warm up |
+| DHT-11 FAIL now and then | One missed reading is normal; FAIL all the time = DATA not on PC6 or no 5 V on the module |
+| MQ-7 FAIL | 0 V: AO wire, divider or power off. ≈4.95 V: off the scale, or the divider is missing (measure PB1: it must stay under 3.3 V). It also needs ~3 min to warm up |
 | Snail 1 "no pulse" | TCRT5000 off the shell, or RV3 not set (step 2) |
 | Snail 2 "no contact" | IR below 1000: nothing in front of the MAX30100. Normal with no snail |
 | Snail 2 "contact but no pulse yet" | Give it ~5 s after putting it on and keep it still |

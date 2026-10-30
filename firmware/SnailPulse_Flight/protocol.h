@@ -75,7 +75,8 @@ struct EnvPayload {         // 36 bytes (fw 1.0-1.1 sent the first 24)
   // ---- added in fw 1.2 (29 Oct 2026). Appended so 24-byte frames from older firmware still decode.
   int16_t  dht_t_c100;      // DHT-11 temperature, 0.01 C (-32768 = no valid reading)
   uint16_t dht_rh_c100;     // DHT-11 humidity, 0.01 % (0xFFFF = no valid reading)
-  uint16_t mq7_mv;          // MQ-7 AO at PB1, mV, 1 s average (0xFFFF = MQ-7 disabled)
+  uint16_t mq7_mv;          // MQ-7 AO at the module, mV, 1 s average (0xFFFF = MQ-7 disabled).
+                            // fw 1.4+: 0-5000 (5 V module, PB1 reading scaled back through the divider)
   uint32_t box2_press_pa;   // second BMP280 (0x77) pressure, Pa (0 = invalid). Removed in fw 1.3: always 0
   int16_t  bmp2_t_c100;     // second BMP280 temperature (-32768 = invalid). Removed in fw 1.3: always -32768
 };

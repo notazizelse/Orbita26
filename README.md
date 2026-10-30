@@ -74,7 +74,7 @@ SnailPulse doesn't replace any platform board. It adds one payload board and our
 
 | Our plug | Goes to | Signals |
 |---|---|---|
-| **J6** (5-pin) | IntroBus_L | PB0 heartbeat ADC · PB1 MQ-7 AO (rev B: heater thermistor) · PC6 DHT-11 data (rev B: heater PWM) · PD12/PD13 I²C4 |
+| **J6** (5-pin) | IntroBus_L | PB0 heartbeat ADC · PB1 MQ-7 AO via 10k/20k divider (rev B: heater thermistor) · PC6 DHT-11 data (rev B: heater PWM) · DHT-11 and MQ-7 on +5 V · PD12/PD13 I²C4 |
 | **J5** (3-pin) | IntroBus_L | +5V_IS · +3V3_IS · GND |
 | **J2** (XT30) | Power module X8 | 14.8 V for the heater only (red +, black −) |
 | **J7 / J8 / J9** | SHT21 · BMP280 · MAX30100 (snail 2's pulse sensor) | I²C4 at 0x40 · 0x76 · 0x57 |

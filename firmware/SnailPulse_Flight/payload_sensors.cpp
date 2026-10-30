@@ -163,7 +163,7 @@ static int32_t dht_wait(uint32_t pin, int level, uint32_t timeout_us) {
 }
 
 void DHT11::begin(uint32_t now) {
-  pinMode(pin_, INPUT_PULLUP);   // idle HIGH; the module's own pull-up does the real work
+  pinMode(pin_, idle_mode_);     // idle HIGH through the module's own pull-up
   state_ = 0;
   t0_ = now;                     // first reading one period after boot (sensor needs >= 1 s)
 }
@@ -171,7 +171,7 @@ void DHT11::begin(uint32_t now) {
 // 0 = ok, 1 = no response, 2 = lost in the handshake, 3 = lost in the data bits
 int8_t DHT11::read_bits(uint8_t *bytes) {
   uint8_t hi[40];
-  pinMode(pin_, INPUT_PULLUP);                                    // end of the start signal
+  pinMode(pin_, idle_mode_);                                      // end of the start signal: release the line
   if (dht_wait(pin_, HIGH, 250) < 0) return 1;                    // sensor answers after 20-40 us
   if (dht_wait(pin_, LOW, 150) < 0 || dht_wait(pin_, HIGH, 150) < 0) return 2;   // 80 us + 80 us
   for (uint8_t i = 0; i < 40; i++) {
@@ -199,7 +199,7 @@ void DHT11::poll(uint32_t now, bool quiet) {
   uint8_t d[5];
   float t, rh;
   bool good = read_bits(d) == 0 && dht11_decode(d, t, rh);
-  pinMode(pin_, INPUT_PULLUP);
+  pinMode(pin_, idle_mode_);
   state_ = 0; t0_ = now;
   if (good) { t_ = t; rh_ = rh; ok_ = true; fails_ = 0; }
   else { errors++; if (++fails_ >= 3) ok_ = false; }

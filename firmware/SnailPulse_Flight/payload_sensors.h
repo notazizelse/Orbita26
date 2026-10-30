@@ -67,7 +67,10 @@ class MAX30100 {
 // 50 Hz sampling interrupt has just run and will not cut into the bit timing.
 class DHT11 {
  public:
-  DHT11(uint32_t pin, uint32_t period_ms) : pin_(pin), period_(period_ms) {}
+  // internal_pullup: true only when the module runs on 3.3 V. On 5 V its own pull-up goes to 5 V and
+  // the STM32's internal one (to 3.3 V) must stay off.
+  DHT11(uint32_t pin, uint32_t period_ms, bool internal_pullup = true)
+    : pin_(pin), period_(period_ms), idle_mode_(internal_pullup ? INPUT_PULLUP : INPUT) {}
   void begin(uint32_t now_ms);
   void poll(uint32_t now_ms, bool quiet);
   bool ok() const { return ok_; }           // false after 3 failed reads in a row
@@ -76,7 +79,7 @@ class DHT11 {
   uint16_t errors = 0;
  private:
   int8_t read_bits(uint8_t *bytes);
-  uint32_t pin_, period_;
+  uint32_t pin_, period_, idle_mode_;
   uint8_t state_ = 0, fails_ = 0;
   uint32_t t0_ = 0;
   bool ok_ = false; float t_ = NAN, rh_ = NAN;

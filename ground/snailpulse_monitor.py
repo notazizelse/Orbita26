@@ -228,8 +228,9 @@ def evaluate(m, now):
         rows.append(row("STATUS packet", "stale" if st is False else "wait", "", "sent every 10 s and once at boot"))
     else:
         fw = st["fw_version"]
-        rows.append(row("Firmware", "ok" if fw >= 0x0103 else "warn", f"{fw >> 8}.{fw & 0xFF}",
-                        "" if fw >= 0x0103 else "older than 1.3: no snail 2 (MAX30100) heart rate; upload SnailPulse_Flight again"))
+        rows.append(row("Firmware", "ok" if fw >= 0x0104 else "warn", f"{fw >> 8}.{fw & 0xFF}",
+                        "" if fw >= 0x0104 else ("older than 1.3: no snail 2 (MAX30100) heart rate" if fw < 0x0103 else
+                        "older than 1.4: built for a 3.3 V DHT-11/MQ-7 (MQ-7 mV reads 1.5× too low)") + "; upload SnailPulse_Flight again"))
         rows.append(row("Uptime / boot count", "ok", f"{hms(st['t_ms'])} / {st['boot_count']}",
                         "boot count comes from the SD card (0 = no SD)"))
         rows.append(row("Last reset", "warn" if st["reset_cause"] == 1 else "ok",
@@ -305,13 +306,14 @@ def evaluate(m, now):
                in_range(p, 5, 1200) and in_range(t1, -40, 60), "not answering at 0x76: check SDO→GND and I²C4")
         td, hd = c100(en["dht_t_c100"]), rh(en["dht_rh_c100"])
         sensor("DHT-11 (PC6)", 32, f"{fmt(td, ' °C', 0)}, {fmt(hd, ' %RH', 0)}",
-               in_range(td, 0, 50) and in_range(hd, 5, 95), "no valid reading: check DATA→PC6 and its 3.3 V")
+               in_range(td, 0, 50) and in_range(hd, 5, 95), "no valid reading: check DATA→PC6 and its 5 V supply")
         mv = en["mq7_mv"]
         if mv == NO_MQ7:
             rows.append(row("MQ-7 CO (PB1)", "na", "—", "disabled in config.h or older firmware"))
         else:
             sensor("MQ-7 CO (PB1)", 64, f"{mv} mV", True,
-                   "0 V = wire off / no power; 3.3 V = saturated. Needs 1–2 min to warm up; only changes matter")
+                   "voltage at the module (5 V supply, 10k/20k divider before PB1). 0 V = wire off / no power; ≈4.95 V = off the scale "
+                   "or divider missing (check PB1 < 3.3 V!). Needs ~3 min to warm up")
         sensor("MAX30100 (0x57, snail 2)", 4, f"IR {en['max30100_ir']}", True,
                "not answering on I²C4: no heart rate for snail 2 (retried every 5 s)")
         rows.append(row("microSD card", "ok" if ok & 16 else "warn", "logging" if ok & 16 else "no card",
@@ -401,14 +403,14 @@ def demo_frames(stop):
         seq += 1
         return SYNC + head + body + struct.pack("<H", crc16_ccitt(head + body))
 
-    yield b"SnailPulse demo: simulated flight controller (fw 1.3)\r\n"
+    yield b"SnailPulse demo: simulated flight controller (fw 1.4)\r\n"
     while not stop.is_set():
         el = time.time() - t0
         ms = int(el * 1000)
         out = b""
         if el >= tick["STATUS"]:
             tick["STATUS"] += 10
-            out += frame("STATUS", ms, 0x0103, 7, seq, seq // 40, 0, 2, 0, random.randint(3, 9), 0, 0x0F, b"\0\0")
+            out += frame("STATUS", ms, 0x0104, 7, seq, seq // 40, 0, 2, 0, random.randint(3, 9), 0, 0x0F, b"\0\0")
         if el >= tick["SNAIL"]:
             tick["SNAIL"] += 2
             bpm = 28 + 3 * math.sin(el / 60)
@@ -426,7 +428,7 @@ def demo_frames(stop):
             dht_ok = random.random() > 0.15
             t = 2290 + int(30 * math.sin(el / 90))
             out += frame("ENV", ms, t, 4520, 101150, t + 15, INV16, 0, 0, 9100, 0x77 if dht_ok else 0x57, b"\0\0\0",
-                         t - 60 if dht_ok else INV16, 4700 if dht_ok else NO_RH, 640 + int(20 * math.sin(el / 30)),
+                         t - 60 if dht_ok else INV16, 4700 if dht_ok else NO_RH, 960 + int(30 * math.sin(el / 30)),
                          0, INV16)                               # second BMP280 removed in fw 1.3
         if out:
             yield out

@@ -3,14 +3,15 @@
 // Arduino IDE: STM32 MCU based boards -> Generic STM32H7 Series -> Generic H750VBTx
 #pragma once
 
-#define SP_FW_VERSION 0x0103          // v1.3 = two snails: TCRT5000 (snail 1) + MAX30100 (snail 2), SNAIL 49 B;
+#define SP_FW_VERSION 0x0104          // v1.4 = DHT-11 and MQ-7 on +5 V: PC6 without internal pull-up, MQ-7 divider (30 Oct)
+                                      // v1.3 = two snails: TCRT5000 (snail 1) + MAX30100 (snail 2), SNAIL 49 B;
                                       //        BMP280 #2 removed (30 Oct)
                                       // v1.2 = rev C, no heater, + DHT-11 / MQ-7 / second BMP280 (29 Oct)
 
 // ---------------- Pins (IntroBus_L, see IntroSat.Platform guide) ----------------
 #define PIN_HB_ADC      PB0           // J6.1  heartbeat amplifier output (HB_ADC)
-#define PIN_MQ7_AO      PB1           // J6.2  MQ-7 module AO (CO gas), analog. Module VCC on +3.3 V
-#define PIN_DHT11       PC6           // J6.3  DHT-11 DATA (one-wire, pull-up on the module)
+#define PIN_MQ7_AO      PB1           // J6.2  MQ-7 module AO (CO gas) through the 10k/20k divider. Module VCC on +5 V
+#define PIN_DHT11       PC6           // J6.3  DHT-11 DATA (one-wire, pull-up on the module to its +5 V; PC6 is 5 V-tolerant)
 #define PIN_NTC1_ADC    PB1           // rev B only: heater thermistor (same pin as the MQ-7)
 #define PIN_HEATER_PWM  PC6           // rev B only: -> R11 1k -> IRLZ44N gate (same pin as the DHT-11)
 #define PIN_I2C4_SDA    PD13          // J6.5  payload I2C bus (SHT21, BMP280, MAX30100)
@@ -70,8 +71,23 @@
 #define SP_HAS_MQ7        1           // 0 = PB1 never sampled
 #define SP_HAS_BMP280_2   0           // second BMP280 at 0x77: removed 30 Oct. 0 = ENV sends its fields as invalid
 #define DHT11_PERIOD_MS   2000        // DHT-11 allows at most one reading per second
-// MQ-7 module VCC is +3.3 V: heater at ~45 % power, so mq7_mv shows changes, not calibrated ppm.
-// On 5 V its AO needs a divider (10k AO->PB1, 20k PB1->GND) before PB1.
+
+// Both modules run on +5 V since 30 Oct.
+// DHT-11: its pull-up goes to 5 V. PC6 is a 5 V-tolerant (FT) pin as a digital input, but its
+// internal pull-up goes to 3.3 V and would fight the module's, so PC6 idles as a plain input.
+// Back on 3.3 V: set DHT11_VCC_5V 0 (then the internal pull-up helps a weak module pull-up).
+#define DHT11_VCC_5V      1
+// MQ-7: on 5 V the heater runs at its rated power (~0.76 W, ~150 mA from +5V_IS), so the
+// datasheet ppm curve applies after warm-up. Its AO then swings up to 5 V and PB1 is NOT
+// 5 V-tolerant as an analog input: the AO wire needs a divider, MQ7_DIV_TOP_OHM from AO to
+// PB1 and MQ7_DIV_BOT_OHM from PB1 to GND (5 V -> 3.33 V). The firmware scales the reading back,
+// so ENV mq7_mv is the voltage at the module. No divider (only on a 3.3 V supply): TOP = 0.
+#define MQ7_VCC_MV        5000
+#define MQ7_DIV_TOP_OHM   10000
+#define MQ7_DIV_BOT_OHM   20000
+#if MQ7_VCC_MV > 3600 && MQ7_DIV_TOP_OHM == 0
+#error "MQ-7 on 5 V needs the AO divider (10k AO->PB1, 20k PB1->GND): 5 V on PB1 can damage the STM32."
+#endif
 
 #if SP_HEATER_ENABLED && (SP_HAS_DHT11 || SP_HAS_MQ7)
 #error "The heater uses PB1 and PC6, which are now the MQ-7 and the DHT-11. Enable only one of them."

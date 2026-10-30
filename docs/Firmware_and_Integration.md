@@ -49,8 +49,8 @@ From the pinout table in the IntroSat guide, matched to our connectors J5 (power
 | Our plug | Pin | Net | IntroBus_L / FCM pin | Pin function on the STM32 | Used for |
 |---|---|---|---|---|---|
 | J6 | 1 | HB_ADC | **PB0** | ADC | Snail 1 heartbeat amplifier output |
-| J6 | 2 | NTC1_ADC → **MQ7_AO** | **PB1** | ADC | Rev B: heater thermistor TH1. Rev C + fw 1.2: MQ-7 analog out |
-| J6 | 3 | PWM → **DHT_DATA** | **PC6** | HRTIM_CHA1 / GPIO | Rev B: heater MOSFET gate (through R11). Rev C + fw 1.2: DHT-11 data |
+| J6 | 2 | NTC1_ADC → **MQ7_AO** | **PB1** | ADC | Rev B: heater thermistor TH1. Rev C + fw 1.2: MQ-7 analog out. Since fw 1.4 the module is on 5 V and AO reaches PB1 through a 10 kΩ / 20 kΩ divider |
+| J6 | 3 | PWM → **DHT_DATA** | **PC6** | HRTIM_CHA1 / GPIO | Rev B: heater MOSFET gate (through R11). Rev C + fw 1.2: DHT-11 data. Since fw 1.4 the module is on 5 V; PC6 is 5 V-tolerant as a digital pin |
 | J6 | 4 | SCL | **PD12** | SCL4 | I²C4 clock to SHT21, BMP280, MAX30100 |
 | J6 | 5 | SDA | **PD13** | SDA4 | I²C4 data |
 | J5 | 1 | +5V | +5V_IS | — | LED driver R1, LM393 comparator U5 |
@@ -64,7 +64,7 @@ Why these pins: PB0 and PB1 are the two plain ADC inputs on the payload header, 
 
 | Rail | Our load | Channel limit | Margin |
 |---|---|---|---|
-| +5V_IS | ≈ 18 mA (IR LED 17 mA + LM393) | 3 A | huge |
+| +5V_IS | ≈ 170 mA (IR LED 17 mA, MQ-7 heater ≈ 150 mA, DHT-11 < 3 mA) | 3 A | huge |
 | +3V3_IS | < 25 mA (op-amp, dividers, three I²C modules) | 3 A | huge |
 | 14.8 V (X8) | ≤ 0.34 A (heater 50 Ω; 5.6 W at a full 16.8 V pack) | 6 A | large |
 
@@ -238,8 +238,8 @@ A known limit, documented in the schematic review: if the TH2 wire breaks, the c
 | SHT21 (GY-21) | I²C4 · 0x40 | ours, non-blocking state machine | Box air temperature and humidity. The heater controller's main input. |
 | BMP280 | I²C4 · 0x76 (SDO → GND via J8.5) | ours, Bosch integer formulas | Box pressure. Range 300–1100 hPa, which is fine inside a sealed box. If it drops out, it is re-initialised once a second (up to 100 errors). |
 | MAX30100 | I²C4 · 0x57 | ours, IR only, FIFO read every 40 ms | **Snail 2's pulse sensor** (section 7b); heart rate in the SNAIL packet, IR level in ENV too. If it stops answering it is re-initialised every 5 s. Many boards pull I²C up to 1.8 V: if it won't answer, remove its 4.7 kΩ pull-ups. |
-| DHT-11 (added 29 Oct) | GPIO · PC6 | ours (`DHT11` in `payload_sensors`, decoding in `dht11_decode.h`) | Second box temperature/humidity, ±2 °C / ±5 %RH, read every 2 s. The 20 ms start signal is non-blocking; the ~5 ms bit read starts right after the 50 Hz ISR so the interrupt can't stretch a bit. A bad checksum is just retried; 3 failures in a row clear its OK bit. |
-| MQ-7 (added 29 Oct) | ADC · PB1 | ours, sampled in the ISR at 5 Hz | CO-sensitive tin-oxide sensor. ENV carries the 1 s average of AO in mV. On 3.3 V its heater runs at ~45 % power, so the reading shows changes, not calibrated ppm. Keep its warm can away from the snail and the SHT21. |
+| DHT-11 (added 29 Oct) | GPIO · PC6 | ours (`DHT11` in `payload_sensors`, decoding in `dht11_decode.h`) | Second box temperature/humidity, ±2 °C / ±5 %RH, read every 2 s. Runs on 5 V since 30 Oct: its pull-up holds DATA at 5 V, so PC6 idles as a plain input (the STM32's own pull-up goes to 3.3 V and would fight it). The 20 ms start signal is non-blocking; the ~5 ms bit read starts right after the 50 Hz ISR so the interrupt can't stretch a bit. A bad checksum is just retried; 3 failures in a row clear its OK bit. |
+| MQ-7 (added 29 Oct) | ADC · PB1 | ours, sampled in the ISR at 5 Hz | CO-sensitive tin-oxide sensor. Runs on 5 V since 30 Oct, so its heater gets its rated power. AO can then reach 5 V, but PB1 is not 5 V-tolerant in analog mode: a divider (10 kΩ AO → PB1, 20 kΩ PB1 → GND) scales 5 V to 3.33 V. The firmware scales the reading back (`mq7_scale.h`), so ENV carries the 1 s average of AO **at the module**, 0–5000 mV. Without the divider PB1 can be damaged. Keep its warm can away from the snail and the SHT21. |
 | MS5611 (on the FCM) | I²C1 · 0x77 | ours (`fc_baro.h`) | Outside pressure down to 10 mbar. Altitude uses the full ISA model, valid above 11 km (at 30 mbar the simple formula says 21.7 km, ISA says 23.9 km). |
 | LSM6DS3, LIS3MDL, LM75A (FCM) | I²C1 | IntroStratLib | Acceleration, rotation, magnetic field, board temperature for the BASE packet. |
 
@@ -346,7 +346,7 @@ This checks the CRC, the frame parser (including corrupted frames), the beat det
 1. Power module with the 12 V supply, payload channels on (X6 jumpers), antenna connected before any transmission.
 2. Flash `tools/HB_Tune`. Hold the TCRT5000 over the snail's heart, measure SENSE (J1 pin 4) to GND and turn **RV3** until it reads about 0.8–2.0 V. Wait ~5 s after each turn for the high-pass to settle. Open the Serial Plotter: a slow regular wave every 1–10 s should appear.
 3. Set **RV2** so its wiper reads ≈ 1.1 V (≈ 40 °C cutoff). Warm TH2 with your fingers or a hair dryer and confirm the heater switches off.
-4. Flash `SnailPulse_Flight`. Start the ground script. Check that a STATUS packet arrives and says fw 1.3, then that the ENV sensors-OK bits read 0x77 (rev C: no heater NTC and no second BMP280, so bits 3 and 7 stay clear). Put the MAX30100 on snail 2 (or a fingertip) and wait ~5 s for its heart rate.
+4. Flash `SnailPulse_Flight`. Start the ground script. Check that a STATUS packet arrives and says fw 1.4, then that the ENV sensors-OK bits read 0x77 (rev C: no heater NTC and no second BMP280, so bits 3 and 7 stay clear). Put the MAX30100 on snail 2 (or a fingertip) and wait ~5 s for its heart rate.
 5. Long run: the full stack in a freezer for ~3 hours, watching box temperature, heater duty and heart rate on the ground screen.
 
 ### 13.4 Not yet verified on real hardware
