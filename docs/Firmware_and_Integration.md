@@ -15,7 +15,10 @@ flowchart LR
   A -->|"HB_ADC → PB0"| ISR["TIM6 interrupt<br/>50 Hz ADC sampling"]
   ISR --> DET["Beat detector<br/>bpm, interval, quality"]
   DET --> PKT["SNAIL packet<br/>+ 2 s waveform"]
-  ENV["SHT21 · BMP280 · MAX30100<br/>(I²C4)"] --> PKT2["ENV packet"]
+  S2["Snail 2 heart"] --> MX["MAX30100<br/>(I²C4, 100 Hz IR)"]
+  MX --> DET2["Beat detector #2"]
+  DET2 --> PKT
+  ENV["SHT21 · BMP280<br/>(I²C4)"] --> PKT2["ENV packet"]
   FC["FC sensors: MS5611, LSM6DS3,<br/>LIS3MDL, LM75A (I²C1)"] --> PKT3["BASE packet"]
   PKT & PKT2 & PKT3 --> Q["ACK-gated radio queue"]
   Q -->|"UART1 115200 8E1"| CB["IntroSat comm board<br/>E32-433T30D LoRa"]
@@ -23,7 +26,7 @@ flowchart LR
   Q -.->|"same data, full rate"| SD["microSD (SDMMC2)"]
 ```
 
-In words: an infrared sensor glued to the shell sees tiny changes in reflected light every time the heart beats. Our analog board turns that into a clean wave around 1.65 V on pin PB0 of the satellite's flight controller (FCM). The FCM samples it 50 times a second, finds the beats, and sends a small binary packet to the ground every 2 seconds through the platform's radio board. Everything is also written to the SD card at full rate. At the same time the FCM keeps the snail's box at 20 °C with a PWM heater, and a separate comparator on our board switches the heater off at about 40 °C even if the code crashes.
+In words, for snail 1: an infrared sensor glued to the shell sees tiny changes in reflected light every time the heart beats. Our analog board turns that into a clean wave around 1.65 V on pin PB0 of the satellite's flight controller (FCM). The FCM samples it 50 times a second, finds the beats, and sends a small binary packet to the ground every 2 seconds through the platform's radio board. Snail 2 wears a MAX30100 optical pulse sensor instead; the FCM reads its 100 Hz IR samples over I²C4 and runs a second copy of the same beat detector on them (section 7b). Both heart rates travel in the same SNAIL packet. Everything is also written to the SD card at full rate. At the same time the FCM keeps the snail's box at 20 °C with a PWM heater, and a separate comparator on our board switches the heater off at about 40 °C even if the code crashes.
 
 ---
 
@@ -45,10 +48,10 @@ From the pinout table in the IntroSat guide, matched to our connectors J5 (power
 
 | Our plug | Pin | Net | IntroBus_L / FCM pin | Pin function on the STM32 | Used for |
 |---|---|---|---|---|---|
-| J6 | 1 | HB_ADC | **PB0** | ADC | Heartbeat amplifier output |
+| J6 | 1 | HB_ADC | **PB0** | ADC | Snail 1 heartbeat amplifier output |
 | J6 | 2 | NTC1_ADC → **MQ7_AO** | **PB1** | ADC | Rev B: heater thermistor TH1. Rev C + fw 1.2: MQ-7 analog out |
 | J6 | 3 | PWM → **DHT_DATA** | **PC6** | HRTIM_CHA1 / GPIO | Rev B: heater MOSFET gate (through R11). Rev C + fw 1.2: DHT-11 data |
-| J6 | 4 | SCL | **PD12** | SCL4 | I²C4 clock to SHT21, both BMP280s, MAX30100 |
+| J6 | 4 | SCL | **PD12** | SCL4 | I²C4 clock to SHT21, BMP280, MAX30100 |
 | J6 | 5 | SDA | **PD13** | SDA4 | I²C4 data |
 | J5 | 1 | +5V | +5V_IS | — | LED driver R1, LM393 comparator U5 |
 | J5 | 2 | +3V3 | +3V3_IS | — | Op-amp U2, sensors, thermistor dividers |
@@ -146,8 +149,8 @@ Numbers worth knowing: the ADC is 12-bit over 3.3 V, so **1 count = 0.81 mV** at
 | Step | What happens | How often |
 |---|---|---|
 | 1 | Drain the ring buffer. Each sample goes to the beat detector and to the SD buffer. A detected beat blinks the user LED (PE10) for 150 ms. | every pass |
-| 2 | `sht.poll()` and `baro.poll()`: these drivers are **state machines**. They start a measurement, return immediately, and pick up the result on a later pass. | every pass |
-| 3 | Slow work: convert NTC1 to °C, read BMP280 and MAX30100, run the heater controller, write the new PWM duty. | once per second |
+| 2 | Every 40 ms: drain the MAX30100 FIFO (about 4 IR samples) into snail 2's detector. Then `sht.poll()` and `baro.poll()`: these drivers are **state machines**. They start a measurement, return immediately, and pick up the result on a later pass. | every pass |
+| 3 | Slow work: convert NTC1 to °C, read the BMP280, run the heater controller, write the new PWM duty. | once per second |
 | 4 | Telemetry schedule: SNAIL and BASE every 2 s, ENV every 4 s, STATUS every 10 s. Then `radio.poll()`. | as scheduled |
 | 5 | Flush the SD buffers. | once per second |
 
@@ -175,6 +178,19 @@ Extra rules make it robust for a snail:
 The detector also keeps a **10 Hz, 8-bit copy of the raw signal** (the average of every 5 samples, top 8 bits). The last 20 of those go in every SNAIL packet. That is exactly 2 s, matching the packet period, so the ground receives a continuous waveform and can recount the beats itself. We don't have to trust the onboard algorithm.
 
 Tested on the PC with synthetic snail pulses at 4 to 120 bpm, a sudden step from 10 to 25 bpm, and pure noise (it correctly reports 0 bpm and quality 0).
+
+## 7b. Snail 2: the MAX30100 (`optical_pulse.h`)
+
+The MAX30100 shines its IR LED into the shell 100 times a second and measures the reflected light (16-bit numbers). It keeps the last 16 samples in a small memory (a FIFO, first in first out). `loop()` empties it every 40 ms, so no sample is lost; if a pass ever comes later than 160 ms, the chip says so (overflow counter) and the detector restarts cleanly instead of using a broken signal.
+
+`OpticalPulse` turns those samples into something the same `HeartbeatDetector` can use:
+
+- A software **high-pass filter** (time constant 1 s) removes the large steady level, the same job the 1 µF × 1 MΩ capacitor does for snail 1. What is left is the small pulse, centred on 32768.
+- **Contact check:** an IR level below 1000 means nothing is in front of the sensor (about 200 in free air). The heart rate is then reported as 0 and the flag "no contact" is set.
+- **Jump check:** a sudden change bigger than 2000 + level/8 (the sensor moved or was put on) restarts the detector, so a jump is never counted as a beat.
+- **Saturation:** IR above 65000 = too much light; flag set.
+
+Tested on the PC with a 72 bpm finger, a 30 bpm snail, nothing in front, contact without a pulse, and a sensor put on after 10 s (about 5 s later the rate is right).
 
 ---
 
@@ -220,9 +236,8 @@ A known limit, documented in the schematic review: if the TH2 wire breaks, the c
 | Sensor | Bus / address | Driver | Notes |
 |---|---|---|---|
 | SHT21 (GY-21) | I²C4 · 0x40 | ours, non-blocking state machine | Box air temperature and humidity. The heater controller's main input. |
-| BMP280 #1 | I²C4 · 0x76 (SDO → GND via J8.5) | ours, Bosch integer formulas | Box pressure. Range 300–1100 hPa, which is fine inside a sealed box. If it drops out, it is re-initialised once a second (up to 100 errors). |
-| MAX30100 | I²C4 · 0x57 | ours, IR only | Backup optical pulse signal; raw IR in the ENV packet. Many boards pull I²C up to 1.8 V: if it won't answer, remove its 4.7 kΩ pull-ups. |
-| BMP280 #2 (added 29 Oct) | I²C4 · 0x77 (SDO → VCC) | same driver, second object | A second box-pressure reading on the same bus wires, as a cross-check. Retried the same way; ENV bit 7. |
+| BMP280 | I²C4 · 0x76 (SDO → GND via J8.5) | ours, Bosch integer formulas | Box pressure. Range 300–1100 hPa, which is fine inside a sealed box. If it drops out, it is re-initialised once a second (up to 100 errors). |
+| MAX30100 | I²C4 · 0x57 | ours, IR only, FIFO read every 40 ms | **Snail 2's pulse sensor** (section 7b); heart rate in the SNAIL packet, IR level in ENV too. If it stops answering it is re-initialised every 5 s. Many boards pull I²C up to 1.8 V: if it won't answer, remove its 4.7 kΩ pull-ups. |
 | DHT-11 (added 29 Oct) | GPIO · PC6 | ours (`DHT11` in `payload_sensors`, decoding in `dht11_decode.h`) | Second box temperature/humidity, ±2 °C / ±5 %RH, read every 2 s. The 20 ms start signal is non-blocking; the ~5 ms bit read starts right after the 50 Hz ISR so the interrupt can't stretch a bit. A bad checksum is just retried; 3 failures in a row clear its OK bit. |
 | MQ-7 (added 29 Oct) | ADC · PB1 | ours, sampled in the ISR at 5 Hz | CO-sensitive tin-oxide sensor. ENV carries the 1 s average of AO in mV. On 3.3 V its heater runs at ~45 % power, so the reading shows changes, not calibrated ppm. Keep its warm can away from the snail and the SHT21. |
 | MS5611 (on the FCM) | I²C1 · 0x77 | ours (`fc_baro.h`) | Outside pressure down to 10 mbar. Altitude uses the full ISA model, valid above 11 km (at 30 mbar the simple formula says 21.7 km, ISA says 23.9 km). |
@@ -251,9 +266,9 @@ The guide also recommends sending raw binary numbers instead of text. A text lin
 
 | Type | Every | Frame size | Main fields |
 |---|---|---|---|
-| `0x10` SNAIL | 2 s | 46 B | bpm × 10, last interval, beat count, quality, flags (beat seen / clipped / no signal), pulse amplitude, DC level, **20 waveform samples** |
+| `0x10` SNAIL | 2 s | 56 B | Snail 1 (TCRT5000): bpm × 10, last interval, beat count, quality, flags (beat seen / clipped / no signal), pulse amplitude, DC level, **20 waveform samples**. Snail 2 (MAX30100, fw 1.3): bpm × 10, beat count, quality, flags (beat / saturated / no pulse / not answering / no contact), amplitude, IR level |
 | `0x01` BASE | 2 s | 41 B | MS5611 pressure, temperature, ISA altitude; acceleration, rotation, magnetic field; FCM board temperature |
-| `0x11` ENV | 4 s | 43 B | box T and RH (SHT21), box pressure and T from both BMP280s, MAX30100 IR, sensor-OK bits, DHT-11 T and RH, MQ-7 mV (fw 1.2; the heater fields are empty on rev C) |
+| `0x11` ENV | 4 s | 43 B | box T and RH (SHT21), box pressure and T (BMP280), MAX30100 IR, sensor-OK bits, DHT-11 T and RH, MQ-7 mV (fw 1.2; the heater fields are empty on rev C) |
 | `0x7F` STATUS | 10 s | 31 B | firmware version, boot count, frames sent / un-ACKed / dropped, I²C and SD errors, worst loop time, watchdog-reset flag, FC sensor-OK bits (`fc_ok`: bit0 LSM6DS3, bit1 LIS3MDL, bit2 LM75A, bit3 MS5611) |
 
 Average load: 23 + 20.5 + 7.75 + 3.1 ≈ **54 bytes/s ≈ 0.43 kbit/s**, about 18 % of the 2.4 kbit/s air rate. The spare capacity absorbs retries and slow ACKs.
@@ -293,11 +308,11 @@ The heartbeat lines are collected in a 1.5 kB RAM buffer and written in blocks. 
 
 | Failure | What the firmware does | What the ground sees |
 |---|---|---|
-| Sensor slips off the shell | Envelope drops below 6 counts → rate 0 | SNAIL: bpm 0, quality 0, flag "no signal"; flat waveform |
+| Sensor slips off the shell | Snail 1: envelope drops below 6 counts → rate 0. Snail 2: IR below 1000 → rate 0 | SNAIL: bpm 0, quality 0, flag "no signal" (snail 2 also "no contact"); flat waveform |
 | Too much light, amplifier clips | Counts samples outside 40–4055 | SNAIL flag "saturated", quality halved |
 | SHT21 dies | Heater switches to mode 2 (plate at 25 °C) | ENV: sensors-OK bit 0 cleared, heater mode 2 |
 | SHT21 and TH1 die | Mode 3, 20 % blind heating; LM393 still armed | ENV: mode 3 |
-| A BMP280 or the MAX30100 dies | Flight continues; BMP280s are retried | ENV: bit 1 (BMP280 #1), bit 7 (#2) or bit 2 (MAX30100) cleared |
+| The BMP280 or the MAX30100 dies | Flight continues; both are retried (BMP280 every second, MAX30100 every 5 s). Snail 1 is not affected | ENV: bit 1 (BMP280) or bit 2 (MAX30100) cleared; SNAIL: snail 2 flag "not answering" |
 | DHT-11 stops answering | Retried every 2 s; flight continues | ENV: bit 5 cleared, DHT fields n/a |
 | MQ-7 wire off or saturated | Value still sent | ENV: bit 6 cleared (AO below 5 mV or above 3.29 V) |
 | I²C bus locks up | `loop()` stalls → watchdog reset in 4 s | STATUS: boot count +1, reset cause 1 |
@@ -331,9 +346,9 @@ This checks the CRC, the frame parser (including corrupted frames), the beat det
 1. Power module with the 12 V supply, payload channels on (X6 jumpers), antenna connected before any transmission.
 2. Flash `tools/HB_Tune`. Hold the TCRT5000 over the snail's heart, measure SENSE (J1 pin 4) to GND and turn **RV3** until it reads about 0.8–2.0 V. Wait ~5 s after each turn for the high-pass to settle. Open the Serial Plotter: a slow regular wave every 1–10 s should appear.
 3. Set **RV2** so its wiper reads ≈ 1.1 V (≈ 40 °C cutoff). Warm TH2 with your fingers or a hair dryer and confirm the heater switches off.
-4. Flash `SnailPulse_Flight`. Start the ground script. Check that a STATUS packet arrives and says fw 1.2, then that the ENV sensors-OK bits read 0xF7 (rev C: no heater NTC, so bit 3 stays clear).
+4. Flash `SnailPulse_Flight`. Start the ground script. Check that a STATUS packet arrives and says fw 1.3, then that the ENV sensors-OK bits read 0x77 (rev C: no heater NTC and no second BMP280, so bits 3 and 7 stay clear). Put the MAX30100 on snail 2 (or a fingertip) and wait ~5 s for its heart rate.
 5. Long run: the full stack in a freezer for ~3 hours, watching box temperature, heater duty and heart rate on the ground screen.
 
 ### 13.4 Not yet verified on real hardware
 
-Firmware 1.2 compiles for the STM32H750 (board package 2.12.0) and the PC tests pass, but it has **not run on the flight controller yet**. The DHT-11 read and the MQ-7 sampling are new in 1.2 and are part of that first run. Step 4 above is the first real test. Things to watch on that first run: `analogRead()` inside the timer interrupt (STM32duino's version is slow but works; if `loop_max_ms` or ISR overruns look wrong, move sampling to ADC + DMA), the comm board actually returning 0x06, and the MAX30100's 1.8 V pull-ups.
+Firmware 1.3 (two snails) passes the PC tests; its STM32 compile is checked on the team Mac. Firmware 1.2 compiles for the STM32H750 (board package 2.12.0) and the PC tests pass, but it has **not run on the flight controller yet**. The DHT-11 read and the MQ-7 sampling are new in 1.2 and are part of that first run. Step 4 above is the first real test. Things to watch on that first run: `analogRead()` inside the timer interrupt (STM32duino's version is slow but works; if `loop_max_ms` or ISR overruns look wrong, move sampling to ADC + DMA), the comm board actually returning 0x06, and the MAX30100's 1.8 V pull-ups.

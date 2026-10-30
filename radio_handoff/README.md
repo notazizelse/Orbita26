@@ -47,9 +47,9 @@ AA 55 | type | seq | len | payload (len bytes) | CRC-16 low | CRC-16 high
 
 | Type | Name | Every | Frame bytes | Contents |
 |---|---|---|---|---|
-| `0x10` | SNAIL | 2 s | 46 | heart rate ×10, beat interval, beat count, quality, flags, pulse amplitude, DC level, 20 waveform samples (10 Hz) |
+| `0x10` | SNAIL | 2 s | 56 | snail 1 (TCRT5000): heart rate ×10, beat interval, beat count, quality, flags, pulse amplitude, DC level, 20 waveform samples (10 Hz); snail 2 (MAX30100): heart rate ×10, beat count, quality, flags, amplitude, IR level. Firmware before 1.3 sent 46 |
 | `0x01` | BASE | 2 s | 41 | FC barometer (MS5611) pressure/temp/altitude, accelerometer, gyro, magnetometer, board temperature |
-| `0x11` | ENV | 4 s | 43 | SHT21 T/RH, BMP280 #1 and #2 P/T, DHT-11 T/RH, MQ-7 mV, MAX30100, sensor-OK bits |
+| `0x11` | ENV | 4 s | 43 | SHT21 T/RH, BMP280 P/T (second-BMP280 fields always empty), DHT-11 T/RH, MQ-7 mV, MAX30100, sensor-OK bits |
 | `0x7F` | STATUS | 10 s + at boot | 31 | firmware version, boot count, frames sent / no ACK / dropped, I²C and SD errors, worst loop time, reset cause, FC sensor-OK bits |
 
 Field by field: the `struct`s in `snailpulse_frames.h` (the comments give units and "invalid" markers).
@@ -96,7 +96,7 @@ Build and flash exactly as for SnailPulse (`docs/Software_Setup.md`, `docs/Bench
 
 ### D. Your own ground program
 
-- **C / C++ / Arduino:** `snailpulse_frames.h`. Feed every received byte to `sp_parser_feed()`; on a 1, `memcpy` the payload into the matching `struct` (check `parser.len >= sizeof(struct)`; ENV frames from old firmware are 24 bytes). `ground_receiver/` is a complete Arduino example that forwards frames to USB, so our monitor still works through your board.
+- **C / C++ / Arduino:** `snailpulse_frames.h`. Feed every received byte to `sp_parser_feed()`; on a 1, `memcpy` the payload into the matching `struct` (check `parser.len >= sizeof(struct)`; ENV frames from old firmware are 24 bytes, SNAIL frames 39). `ground_receiver/` is a complete Arduino example that forwards frames to USB, so our monitor still works through your board.
 - **Python:** `from snailpulse_ground import Parser, decode` (folder `ground/`).
 - Anything else: the table and structs above; test with the frames below.
 
@@ -105,13 +105,13 @@ Build and flash exactly as for SnailPulse (`docs/Software_Setup.md`, `docs/Bench
 Built by the flight code itself (`firmware/tests/test_host.cpp`); your parser must accept all four:
 
 ```
-SNAIL  AA 55 10 01 27 88 13 00 00 F5 00 00 00 00 00 4D 00 00 00 00 00 80 96 A5 A6 9B 85 6E 5D 58 61 74 8C 9F A7 A2 90 79 64 58 5B 14 00 00 BB DF
-ENV    AA 55 11 02 24 70 17 00 00 C3 07 8F 19 EC 8A 01 00 DA 07 00 80 00 00 00 00 F7 00 00 00 34 08 7C 15 9C 01 D8 8A 01 00 EE 07 D1 5A
+SNAIL  AA 55 10 01 31 88 13 00 00 F5 00 00 00 00 00 4D 00 00 00 00 00 80 96 A5 A6 9B 85 6E 5D 58 61 74 8C 9F A7 A2 90 79 64 58 5B 14 00 00 FB 00 28 00 40 01 B4 00 8C 23 61 55
+ENV    AA 55 11 02 24 70 17 00 00 C3 07 8F 19 EC 8A 01 00 DA 07 00 80 00 00 00 00 77 00 00 00 34 08 7C 15 9C 01 00 00 00 00 00 80 4E 3B
 BASE   AA 55 01 03 22 58 1B 00 00 B8 0B 00 00 2E FB A4 A3 03 00 00 00 00 00 E8 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 64 84
-STATUS AA 55 7F 04 18 40 1F 00 00 02 01 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0F 00 00 5D 76
+STATUS AA 55 7F 04 18 40 1F 00 00 03 01 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0F 00 00 EE 43
 ```
 
-Expected: SNAIL 24.5 bpm, quality 77 · ENV box 19.87 °C, BMP280 #1 101100 Pa, #2 101080 Pa, DHT-11 21.00 °C, MQ-7 412 mV, sensors_ok 0xF7 · BASE 3000 Pa, altitude 23850.0 m · STATUS firmware 0x0102, boot 3, fc_ok 0x0F. Flip any one byte and the CRC must reject the frame.
+Expected: SNAIL snail 1 24.5 bpm, quality 77; snail 2 25.1 bpm, quality 64, IR 9100 · ENV box 19.87 °C, BMP280 101100 Pa, second BMP280 0 Pa (not fitted), DHT-11 21.00 °C, MQ-7 412 mV, sensors_ok 0x77 · BASE 3000 Pa, altitude 23850.0 m · STATUS firmware 0x0103, boot 3, fc_ok 0x0F. SNAIL frames from firmware before 1.3 are 46 bytes (payload 39): accept both. Flip any one byte and the CRC must reject the frame.
 
 Our monitor can replay a capture: `python3 ground/snailpulse_monitor.py --file capture.bin`, or try it with no hardware: `--demo`.
 

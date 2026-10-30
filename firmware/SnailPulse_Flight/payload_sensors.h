@@ -1,4 +1,4 @@
-// Payload sensors: SHT21, 2x BMP280, MAX30100 (backup) on I2C4 (PD13/PD12), DHT-11 on a GPIO
+// Payload sensors: SHT21, BMP280, MAX30100 (snail 2 pulse) on I2C4 (PD13/PD12), DHT-11 on a GPIO
 // Small self-contained drivers so the flight code does not depend on extra libraries.
 #pragma once
 #include <Arduino.h>
@@ -42,16 +42,19 @@ class BMP280 {
   uint32_t p_pa_ = 0; float t_c_ = NAN;
 };
 
-// ---- MAX30100 (backup optical pulse sensor) - HR mode, IR only
+// ---- MAX30100 (second, optical pulse sensor) - HR mode, IR only, 100 Hz. The beats are found
+// by OpticalPulse (optical_pulse.h); this class only talks to the chip.
 // NOTE: many GY-MAX30100 boards pull SDA/SCL up to 1.8 V; if the STM32 cannot read it,
 // remove the module's 4.7k pull-ups (the other modules already pull up to 3.3 V).
 class MAX30100 {
  public:
   explicit MAX30100(TwoWire &w, uint8_t addr = 0x57) : w_(w), addr_(addr) {}
   bool begin();
-  bool read();                 // drains FIFO, keeps the newest IR sample
+  // Every IR sample since the last call into ir[16], oldest first. Call at least every 150 ms.
+  // lost = samples were dropped (call came too late). Returns the number of samples.
+  uint8_t drain(uint16_t *ir, bool &lost);
   bool ok() const { return ok_; }
-  uint16_t ir() const { return ir_; }
+  uint16_t ir() const { return ir_; }   // newest IR sample
   uint16_t errors = 0;
  private:
   TwoWire &w_; uint8_t addr_;

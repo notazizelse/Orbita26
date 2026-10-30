@@ -50,8 +50,8 @@ If it fails with "Error: open failed" or "init mode failed": ST-Link not plugged
 
 | Step | Upload | Watch it with | Good result |
 |---|---|---|---|
-| 1 | `firmware/tools/SensorTest/SensorTest.ino` | Serial Monitor 115200, or the ground monitor's Console panel | Every line PASS (perfboard guide step 11 has the voltage checks to do first) |
-| 2 | `firmware/tools/HB_Tune/HB_Tune.ino` | Serial Plotter 115200 | A slow regular wave from the snail; set RV3 |
+| 1 | `firmware/tools/SensorTest/SensorTest.ino` | Serial Monitor 115200, or the ground monitor's Console panel | Every line PASS (perfboard guide step 11 has the voltage checks to do first). Key `m` + Serial Plotter: snail 2's pulse from the MAX30100 |
+| 2 | `firmware/tools/HB_Tune/HB_Tune.ino` | Serial Plotter 115200 | A slow regular wave from snail 1 (TCRT5000); set RV3 |
 | 3 | `firmware/SnailPulse_Flight/SnailPulse_Flight.ino` | Ground monitor on the FC's USB-C | Everything OK except "Comm board ACKs" if no comm board is on |
 | 4 | (same) + comm board + antennas + ground E32 | Ground monitor on the ground E32's port | Same values over the air; "Comm board ACKs" OK |
 
@@ -70,10 +70,12 @@ It opens `http://localhost:8765`. Every sensor gets a row with **OK / WARN / FAI
 | What you see | Likely cause |
 |---|---|
 | Data in: WAITING | Wrong port or baud, FC not powered, or the code is not the flight firmware (SensorTest prints text: see the Console panel) |
-| FAIL on one I²C4 sensor (SHT21, BMP280 #1/#2) | Its address wiring (BMP280 SDO) or the I²C4 wires PD13/PD12; SensorTest's scan shows who answers |
+| FAIL on one I²C4 sensor (SHT21, BMP280, MAX30100) | Its address wiring (BMP280 SDO → GND) or the I²C4 wires PD13/PD12; SensorTest's scan shows who answers |
 | DHT-11 FAIL now and then | One missed reading is normal; FAIL all the time = DATA not on PC6 or no 3.3 V |
 | MQ-7 FAIL | 0 V: wire off or no power. 3.3 V: saturated. It also needs 1–2 min to warm up |
-| Heartbeat "no signal" | Sensor off the shell, or RV3 not set (step 2) |
+| Snail 1 "no pulse" | TCRT5000 off the shell, or RV3 not set (step 2) |
+| Snail 2 "no contact" | IR below 1000: nothing in front of the MAX30100. Normal with no snail |
+| Snail 2 "contact but no pulse yet" | Give it ~5 s after putting it on and keep it still |
 | Comm board ACKs WARN on the USB bench test | Normal: no comm board is answering |
 | Worst loop time WARN | Something blocks the loop; a watchdog reset follows at 4 s |
 | STALE everywhere | Data stopped: cable, power, or the FC reset (boot count goes up) |

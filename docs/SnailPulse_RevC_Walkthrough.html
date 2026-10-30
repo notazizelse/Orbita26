@@ -47118,7 +47118,7 @@ stroke-linecap:round; stroke-linejoin:round;">
   <h1>SnailPulse, part by part</h1>
   <p class="lede">SnailPulse listens for a garden snail's heartbeat through its shell during a stratospheric flight. Rev C is the heartbeat-only board: an infrared sensor, a two-stage analog filter and amplifier, a 1.65&nbsp;V reference, and the connectors that tie it to the IntroSat flight controller and three I²C sensors.</p>
   <p class="lede">Every picture below is cut from the current KiCad file (the version saved this evening). Click a stage or a part name and it lights up on the schematic.</p>
-  <p class="lede"><b>Updated 29 Oct:</b> a DHT-11 (on PC6) and an MQ-7 (on PB1) were added on J6 pins 3 and 2, and a second BMP280 shares the I²C bus: J8's BMP280 keeps SDO → GND (0x76), the new one has SDO → VCC (0x77). The text below says so; the schematic pictures don't show it yet. <a href="#c-new">New sensors →</a> · <a href="#checks">Checks and which code to upload →</a></p>
+  <p class="lede"><b>Updated 29 Oct:</b> a DHT-11 (on PC6) and an MQ-7 (on PB1) were added on J6 pins 3 and 2. <b>Updated 30 Oct:</b> there are now <b>two snails</b>. Snail 1 wears the TCRT5000 (amplifier → PB0), snail 2 the MAX30100 on J9 (I²C, 0x57); each gets its own heart rate. The second BMP280 planned on 29 Oct was dropped: only J8's BMP280 (0x76) stays. The text below says so; the schematic pictures don't show it yet. <a href="#c-new">New sensors →</a> · <a href="#checks">Checks and which code to upload →</a></p>
 </header>
 
 <nav class="chain" aria-label="Signal chain">
@@ -47375,12 +47375,6 @@ FC payload channels allow 3 A each → we use about 4 %</div>
         <div class="math">MQ-7 on 3.3 V: heater power = 3.3² / 33 Ω ≈ 0.33 W  (vs 0.76 W at its rated 5 V → ~45 %)
 → the sensor still reacts to CO and other gases, but its ppm curve is not calibrated</div>
         <p class="why"><span class="lbl">If you move the MQ-7 to 5 V</span>Its AO can then reach 5 V, and PB1 is not 5 V-tolerant in analog mode. Put a divider in the AO wire first: 10 kΩ from AO to PB1 and 20 kΩ from PB1 to GND, which scales 5 V down to 3.3 V. Then set <code>MQ7_VCC 5.0f</code> in the test sketch.</p>
-        <div class="tablewrap"><table class="pins"><thead><tr><th>BMP280 #2 pin</th><th>Goes to</th><th>FC pin</th><th>Notes</th></tr></thead><tbody>
-          <tr><td>VCC / GND</td><td><span class="net">+3V3</span> / <span class="net">GND</span></td><td class="mono">+3V3_IS / GND</td><td>same rails as J8</td></tr>
-          <tr><td>SCL / SDA</td><td><span class="net">SCL</span> / <span class="net">SDA</span></td><td class="mono">PD12 / PD13</td><td>same I²C4 bus as J7, J8, J9</td></tr>
-          <tr><td>SDO</td><td>its own VCC</td><td>—</td><td>address <b>0x77</b>. J8's BMP280 keeps SDO → GND (0x76). Two modules with SDO on the same rail would share one address and clash.</td></tr>
-          <tr><td>CSB</td><td>not connected</td><td>—</td><td>the module pulls it up (I²C mode)</td></tr>
-        </tbody></table></div>
       </article>
 
       <article class="stage" id="c-sensor" tabindex="0" data-parts="J1 U1" data-title="TCRT5000 cable">
@@ -47399,17 +47393,16 @@ FC payload channels allow 3 A each → we use about 4 %</div>
       </article>
 
       <article class="stage" id="c-i2c" tabindex="0" data-parts="J7 J8 J9" data-title="I²C sensors">
-        <div class="stage-head"><h3>Sensors on one I²C bus: J7, J8, J9 (+ BMP280 #2)</h3></div>
-        <p>I²C needs only two wires for any number of chips: SCL (clock, driven by the STM32) and SDA (data, both ways). Every chip has its own address and only answers when it hears it, so all the modules share the same <span class="net">SCL</span> and <span class="net">SDA</span> nets. Since 29 Oct a fourth module, a second BMP280, hangs on the same two wires.</p>
+        <div class="stage-head"><h3>Sensors on one I²C bus: J7, J8, J9</h3></div>
+        <p>I²C needs only two wires for any number of chips: SCL (clock, driven by the STM32) and SDA (data, both ways). Every chip has its own address and only answers when it hears it, so all the modules share the same <span class="net">SCL</span> and <span class="net">SDA</span> nets.</p>
         <div class="tablewrap"><table class="pins"><thead><tr><th>Ref</th><th>Module</th><th>Address</th><th>Measures</th></tr></thead><tbody>
           <tr><td>J7</td><td>SHT21 (GY-21)</td><td class="mono">0x40</td><td>box temperature and humidity</td></tr>
-          <tr><td>J8</td><td>BMP280 #1</td><td class="mono">0x76</td><td>box pressure (300–1100&nbsp;hPa, so it only works inside the sealed box)</td></tr>
-          <tr><td>—</td><td>BMP280 #2 (added 29 Oct)</td><td class="mono">0x77</td><td>second box pressure reading, as a cross-check. Not on the sheet yet; wired to the same four nets with SDO → VCC</td></tr>
-          <tr><td>J9</td><td>MAX30100</td><td class="mono">0x57</td><td>backup optical pulse sensor with its own LEDs, photodiode and ADC</td></tr>
+          <tr><td>J8</td><td>BMP280</td><td class="mono">0x76</td><td>box pressure (300–1100&nbsp;hPa, so it only works inside the sealed box)</td></tr>
+          <tr><td>J9</td><td>MAX30100</td><td class="mono">0x57</td><td><b>snail 2's pulse sensor</b> (since 30 Oct): its own LEDs, photodiode and ADC, glued to the second snail's shell</td></tr>
         </tbody></table></div>
         <ul class="parts">
           <li><button class="chip" data-part="J7">J7</button><span class="d">Pins: 1 +3V3, 2 GND, 3 SCL, 4 SDA.</span></li>
-          <li><button class="chip" data-part="J8">J8</button><span class="d">Same four, plus pin 5, which goes to the BMP280's SDO pin. SDO picks the address: SDO low = 0x76, SDO high = 0x77. J8 pin 5 is GND, so this module answers at <b>0x76</b>. The second BMP280 ties its SDO to VCC and answers at <b>0x77</b>. That does not clash with the flight controller's MS5611, which is also 0x77 but sits on the other bus (I²C1).</span></li>
+          <li><button class="chip" data-part="J8">J8</button><span class="d">Same four, plus pin 5, which goes to the BMP280's SDO pin. SDO picks the address: SDO low = 0x76, SDO high = 0x77. J8 pin 5 is GND, so this module answers at <b>0x76</b>.</span></li>
           <li><button class="chip" data-part="J9">J9</button><span class="d">Pins: 1 +3V3, 2 GND, 3 SCL, 4 SDA.</span></li>
         </ul>
         <p class="why"><span class="lbl">Where are the pull-up resistors?</span>I²C lines are open-drain: chips can only pull them low, so something must pull them high. There are no pull-ups on this board; the sensor modules carry their own, and they end up in parallel on the bus.</p>
@@ -47426,9 +47419,9 @@ FC payload channels allow 3 A each → we use about 4 %</div>
   </div>
   <ol class="checks">
     <li><h3>Wire the TCRT5000 by function, not by U1's pin numbers</h3><p>U1 uses KiCad's CNY70 symbol (there's no TCRT5000 in that library), so its pin numbers 1–4 are the CNY70's. Use the J1 table above and the A/K/C/E markings in the TCRT5000 datasheet when you solder the cable.</p></li>
-    <li><h3>J8 pin 5 must reach SDO, not CSB</h3><p>Many BMP280 modules also have a CSB pin. If CSB is pulled low at power-up the chip switches to SPI and disappears from the I²C bus. Leave CSB high or unconnected (most modules pull it up) on both BMP280s. J8's module has SDO → GND (0x76); the second has SDO → VCC (0x77). If the scan shows only one of the two, check that their SDO pins really go to different rails.</p></li>
-    <li><h3>MAX30100 pull-ups</h3><p>Many purple GY-MAX30100 boards pull SDA/SCL up to 1.8&nbsp;V. Your firmware already notes this. If the I²C scan shows 0x40, 0x76 and 0x77 but not 0x57, that's the likely cause.</p></li>
-    <li><h3>Flash firmware 1.2 or newer, not the old binaries</h3><p><code>firmware/SnailPulse_Flight</code> 1.2 (29 Oct) has the heater code switched off, reads the DHT-11 on PC6, the MQ-7 on PB1, and both BMP280s (0x76 and 0x77). Older builds (1.0, 1.1) don't know about the new sensors, and the heater-on one drives PC6 as a PWM output, which fights the DHT-11. After flashing, the STATUS packet on the ground station must say <b>fw 1.2</b>, and the ENV sensor bits should read <b>0xF7</b> (SHT21, both BMP280s, MAX30100, SD, DHT-11 and MQ-7 all OK; bit 3 is the heater NTC, which rev C doesn't have).</p></li>
+    <li><h3>J8 pin 5 must reach SDO, not CSB</h3><p>Many BMP280 modules also have a CSB pin. If CSB is pulled low at power-up the chip switches to SPI and disappears from the I²C bus. Leave CSB high or unconnected (most modules pull it up). J8's module has SDO → GND (0x76). If the scan shows 0x77 instead, its SDO is on the wrong rail.</p></li>
+    <li><h3>MAX30100 pull-ups</h3><p>Many purple GY-MAX30100 boards pull SDA/SCL up to 1.8&nbsp;V. Your firmware already notes this. If the I²C scan shows 0x40 and 0x76 but not 0x57, that's the likely cause.</p></li>
+    <li><h3>Flash firmware 1.3 or newer, not the old binaries</h3><p><code>firmware/SnailPulse_Flight</code> 1.3 (30 Oct) has the heater code switched off, measures two snails (TCRT5000 on PB0, MAX30100 on I²C), reads the DHT-11 on PC6, the MQ-7 on PB1 and the BMP280 (0x76). Older builds (1.0, 1.1) don't know about the new sensors, and the heater-on one drives PC6 as a PWM output, which fights the DHT-11. After flashing, the STATUS packet on the ground station must say <b>fw 1.3</b>, and the ENV sensor bits should read <b>0x77</b> (SHT21, BMP280, MAX30100, SD, DHT-11 and MQ-7 all OK; bit 3 is the heater NTC and bit 7 the dropped second BMP280).</p></li>
     <li><h3>MQ-7 needs warm-up and its own airflow</h3><p>Its heater needs about 3 minutes after power-up before the reading settles, and a new sensor drifts for much longer. The can gets warm, so keep it away from the snail and from the SHT21 and DHT-11, or it will raise their readings.</p></li>
   </ol>
   <div class="note" style="margin-top:20px">
@@ -47438,15 +47431,15 @@ FC payload channels allow 3 A each → we use about 4 %</div>
 3. Turn RV3 so SENSE sits near 1 V DC
 4. Flash firmware/tools/SensorTest/SensorTest.ino to the FLIGHT CONTROLLER
    (Generic STM32H7 · STM32H750VBTx · STM32CubeProgrammer SWD · ST-Link on PROG · BOOT0 = 0)
-5. Serial Monitor on the FC's USB-C, 115200: I²C4 shows 0x40, 0x57, 0x76, 0x77;
-   DHT-11 (PC6), MQ-7 (PB1) and heartbeat (PB0) all say PASS</div>
+5. Serial Monitor on the FC's USB-C, 115200: I²C4 shows 0x40, 0x57, 0x76;
+   DHT-11 (PC6), MQ-7 (PB1), snail 1 (TCRT5000, PB0) and snail 2 (MAX30100) all say PASS</div>
   </div>
   <div class="note" style="margin-top:16px">
     <h3>Which code goes where</h3>
     <div class="tablewrap"><table class="pins"><thead><tr><th>#</th><th>Sketch</th><th>Upload to</th><th>When</th></tr></thead><tbody>
       <tr><td>1</td><td><code>firmware/tools/SensorTest</code></td><td>Flight controller (STM32H750)</td><td>After wiring: tests every sensor and prints PASS/FAIL on the USB-C port</td></tr>
       <tr><td>2</td><td><code>firmware/tools/HB_Tune</code></td><td>Flight controller</td><td>Tuning RV3 on the snail: streams PB0 (and the MQ-7 on PB1) to the Serial Plotter</td></tr>
-      <tr><td>3</td><td><code>firmware/SnailPulse_Flight</code></td><td>Flight controller</td><td>Flight: firmware 1.2 with the DHT-11, MQ-7 and both BMP280s (needs IntroStratLib, STM32SD, FatFs)</td></tr>
+      <tr><td>3</td><td><code>firmware/SnailPulse_Flight</code></td><td>Flight controller</td><td>Flight: firmware 1.3 with two snails, the DHT-11, MQ-7 and BMP280 (needs IntroStratLib, STM32SD, FatFs)</td></tr>
     </tbody></table></div>
     <p class="sub">Nothing is uploaded to the SnailPulse board: it has no processor. The communication board and the power board keep the organizers' firmware.</p>
   </div>

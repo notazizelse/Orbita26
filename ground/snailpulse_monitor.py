@@ -107,15 +107,14 @@ class Monitor:
             for i, v in enumerate(d["wave"]):
                 self.wave.append((t - (n - 1 - i) * 0.1, v))
             self.add("bpm", t, d["bpm"] if d["bpm_x10"] else None)
+            self.add("bpm2", t, d["max_bpm"] if d["max_bpm_x10"] else None)
         elif name == "ENV":
             self.add("t_sht", t, c100(d["box_t_c100"]))
             self.add("t_dht", t, c100(d["dht_t_c100"]))
             self.add("t_bmp1", t, c100(d["bmp_t_c100"]))
-            self.add("t_bmp2", t, c100(d["bmp2_t_c100"]))
             self.add("rh_sht", t, rh(d["box_rh_c100"]))
             self.add("rh_dht", t, rh(d["dht_rh_c100"]))
             self.add("p_bmp1", t, hpa(d["box_press_pa"]))
-            self.add("p_bmp2", t, hpa(d["box2_press_pa"]))
             self.add("mq7", t, None if d["mq7_mv"] == NO_MQ7 else d["mq7_mv"])
         elif name == "BASE":
             self.add("p_ms5611", t, hpa(d["press_pa"]))
@@ -167,7 +166,7 @@ def hms(ms):
 
 def short(name, d):
     if name == "SNAIL":
-        return f"{d['bpm']:.1f} bpm, quality {d['quality']}%, beats {d['beats_total']}"
+        return f"snail 1 {d['bpm']:.1f} bpm q{d['quality']}% · snail 2 {d['max_bpm']:.1f} bpm q{d['max_quality']}%"
     if name == "ENV":
         return f"SHT {fmt(c100(d['box_t_c100']), ' °C')}, ok=0x{d['sensors_ok']:02X}"
     if name == "BASE":
@@ -229,8 +228,8 @@ def evaluate(m, now):
         rows.append(row("STATUS packet", "stale" if st is False else "wait", "", "sent every 10 s and once at boot"))
     else:
         fw = st["fw_version"]
-        rows.append(row("Firmware", "ok" if fw >= 0x0102 else "warn", f"{fw >> 8}.{fw & 0xFF}",
-                        "" if fw >= 0x0102 else "older than 1.2: no DHT-11, MQ-7 or BMP280 #2"))
+        rows.append(row("Firmware", "ok" if fw >= 0x0103 else "warn", f"{fw >> 8}.{fw & 0xFF}",
+                        "" if fw >= 0x0103 else "older than 1.3: no snail 2 (MAX30100) heart rate; upload SnailPulse_Flight again"))
         rows.append(row("Uptime / boot count", "ok", f"{hms(st['t_ms'])} / {st['boot_count']}",
                         "boot count comes from the SD card (0 = no SD)"))
         rows.append(row("Last reset", "warn" if st["reset_cause"] == 1 else "ok",
@@ -302,11 +301,8 @@ def evaluate(m, now):
         sensor("SHT21 temp/humidity (0x40)", 1, f"{fmt(t, ' °C')}, {fmt(h, ' %RH')}",
                in_range(t, -40, 60) and in_range(h, 0, 100), "not answering on I²C4 (PD13/PD12)")
         p, t1 = hpa(en["box_press_pa"]), c100(en["bmp_t_c100"])
-        sensor("BMP280 #1 (0x76, SDO→GND)", 2, f"{fmt(p, ' hPa')}, {fmt(t1, ' °C')}",
+        sensor("BMP280 (0x76, SDO→GND)", 2, f"{fmt(p, ' hPa')}, {fmt(t1, ' °C')}",
                in_range(p, 5, 1200) and in_range(t1, -40, 60), "not answering at 0x76: check SDO→GND and I²C4")
-        p2, t2 = hpa(en["box2_press_pa"]), c100(en["bmp2_t_c100"])
-        sensor("BMP280 #2 (0x77, SDO→VCC)", 128, f"{fmt(p2, ' hPa')}, {fmt(t2, ' °C')}",
-               in_range(p2, 5, 1200) and in_range(t2, -40, 60), "not answering at 0x77: check SDO→VCC and I²C4")
         td, hd = c100(en["dht_t_c100"]), rh(en["dht_rh_c100"])
         sensor("DHT-11 (PC6)", 32, f"{fmt(td, ' °C', 0)}, {fmt(hd, ' %RH', 0)}",
                in_range(td, 0, 50) and in_range(hd, 5, 95), "no valid reading: check DATA→PC6 and its 3.3 V")
@@ -316,25 +312,27 @@ def evaluate(m, now):
         else:
             sensor("MQ-7 CO (PB1)", 64, f"{mv} mV", True,
                    "0 V = wire off / no power; 3.3 V = saturated. Needs 1–2 min to warm up; only changes matter")
-        sensor("MAX30100 (0x57, backup)", 4, f"IR {en['max30100_ir']}", True, "not answering (backup sensor: flight continues)", backup=True)
+        sensor("MAX30100 (0x57, snail 2)", 4, f"IR {en['max30100_ir']}", True,
+               "not answering on I²C4: no heart rate for snail 2 (retried every 5 s)")
         rows.append(row("microSD card", "ok" if ok & 16 else "warn", "logging" if ok & 16 else "no card",
                         "" if ok & 16 else "no SD: radio still works, but the 50 Hz log is lost"))
         if ok & 8 or en["heater_t_c100"] != INV16:
             rows.append(row("Heater NTC (rev B)", "ok" if ok & 8 else "fail", fmt(c100(en["heater_t_c100"]), " °C")))
         else:
             rows.append(row("Heater NTC", "na", "not fitted", "rev C has no heater"))
-        rows.append(row("Sensor-OK bits", "ok" if ok & 0xF7 == 0xF7 else "warn", f"0x{ok:02X}",
-                        "healthy rev C board = 0xF7 (bit 3 = heater, not fitted)"))
+        rows.append(row("Sensor-OK bits", "ok" if ok & 0x77 == 0x77 else "warn", f"0x{ok:02X}",
+                        "healthy rev C board = 0x77 (bit 3 heater and bit 7 second BMP280: not fitted)"))
     G.append({"title": "Payload sensors (I²C4, PC6, PB1)", "rows": rows})
 
-    # --- heartbeat (SNAIL)
-    sn, rows = fresh("SNAIL"), []
+    # --- heartbeats (SNAIL): snail 1 on the TCRT5000, snail 2 on the MAX30100
+    sn, rows, rows2 = fresh("SNAIL"), [], []
     if not sn:
         rows.append(row("SNAIL packet", "stale" if sn is False else "wait", "", "sent every 2 s"))
+        rows2.append(row("SNAIL packet", "stale" if sn is False else "wait", "", "sent every 2 s"))
     else:
         f = sn["flags"]
         if f & 4:
-            s, why = "warn", "no signal: sensor off the shell, or turn RV3"
+            s, why = "warn", "no pulse: TCRT5000 off the shell, or turn RV3"
         elif f & 2:
             s, why = "warn", "amplifier clipping: turn RV3 / less light"
         else:
@@ -344,9 +342,29 @@ def evaluate(m, now):
                         f"{sn['bpm']:.1f} bpm, last interval {sn['last_ibi_ms']} ms" if sn["bpm_x10"] else "no valid rate yet",
                         f"quality {sn['quality']} %, {sn['beats_total']} beats since boot"))
         v = sn["dc_counts"] * 3.3 / 4095
-        rows.append(row("HB_ADC level (PB0)", "ok" if 0.3 <= v <= 3.0 else "warn", f"{v:.2f} V (pulse {sn['amp_counts']} counts)",
-                        "resting level should sit near 1.65 V" if 0.3 <= v <= 3.0 else "stuck near a rail: amplifier or wiring"))
-    G.append({"title": "Heartbeat (PB0)", "rows": rows})
+        rows.append(row("Amplifier level (PB0)", "ok" if 0.3 <= v <= 3.0 else "warn", f"{v:.2f} V (pulse {sn['amp_counts']} counts)",
+                        "resting level near 1.65–2.0 V" if 0.3 <= v <= 3.0 else "stuck near a rail: amplifier or wiring"))
+
+        mf = sn["max_flags"]
+        if mf & 8:
+            s, why = "fail", "MAX30100 not answering on I²C4 (0x57); retried every 5 s"
+        elif mf & 16:
+            s, why = "warn", "no contact: nothing in front of the MAX30100 (IR below 1000)"
+        elif mf & 2:
+            s, why = "warn", "too much light: IR at full scale"
+        elif mf & 4:
+            s, why = "warn", "contact but no pulse yet: hold still, it needs ~5 s after being put on"
+        else:
+            s, why = "ok", "beat seen in this window" if mf & 1 else ""
+        names = ((1, "beat"), (2, "SATURATED"), (4, "NO-SIGNAL"), (8, "NOT-ANSWERING"), (16, "NO-CONTACT"))
+        rows2.append(row("Signal", s, " ".join(n for b, n in names if mf & b) or "clean", why))
+        rows2.append(row("Heart rate", "ok" if sn["max_bpm_x10"] else "warn",
+                         f"{sn['max_bpm']:.1f} bpm" if sn["max_bpm_x10"] else "no valid rate yet",
+                         f"quality {sn['max_quality']} %, {sn['max_beats_total']} beats since boot"))
+        rows2.append(row("IR level", "ok" if sn["max_ir"] >= 1000 else "warn", f"{sn['max_ir']} (pulse {sn['max_amp']} counts)",
+                         "~200 = nothing in front; thousands = on the shell"))
+    G.append({"title": "Snail 1 · TCRT5000 → amplifier → PB0", "rows": rows})
+    G.append({"title": "Snail 2 · MAX30100 (I²C4, 0x57)", "rows": rows2})
 
     # --- cross-checks
     rows = []
@@ -360,11 +378,9 @@ def evaluate(m, now):
 
     e = en or {}
     b = ba or {}
-    cross("BMP280 #1 vs #2 pressure", hpa(e.get("box_press_pa")), hpa(e.get("box2_press_pa")), 2, " hPa",
-          "same air on the bench; differs in flight if one is in the sealed box")
-    cross("BMP280 #1 vs MS5611 pressure", hpa(e.get("box_press_pa")), hpa(b.get("press_pa")), 3, " hPa", "bench only")
+    cross("BMP280 vs MS5611 pressure", hpa(e.get("box_press_pa")), hpa(b.get("press_pa")), 3, " hPa", "bench only")
     cross("SHT21 vs DHT-11 temperature", c100(e.get("box_t_c100", INV16)), c100(e.get("dht_t_c100", INV16)), 3, " °C", "DHT-11 is ±2 °C")
-    cross("SHT21 vs BMP280 #1 temperature", c100(e.get("box_t_c100", INV16)), c100(e.get("bmp_t_c100", INV16)), 3, " °C", "")
+    cross("SHT21 vs BMP280 temperature", c100(e.get("box_t_c100", INV16)), c100(e.get("bmp_t_c100", INV16)), 3, " °C", "")
     cross("SHT21 vs DHT-11 humidity", rh(e.get("box_rh_c100", NO_RH)), rh(e.get("dht_rh_c100", NO_RH)), 15, " %", "DHT-11 is ±5 %RH")
     G.append({"title": "Cross-checks", "rows": rows})
     return G
@@ -385,21 +401,23 @@ def demo_frames(stop):
         seq += 1
         return SYNC + head + body + struct.pack("<H", crc16_ccitt(head + body))
 
-    yield b"SnailPulse demo: simulated flight controller (fw 1.2)\r\n"
+    yield b"SnailPulse demo: simulated flight controller (fw 1.3)\r\n"
     while not stop.is_set():
         el = time.time() - t0
         ms = int(el * 1000)
         out = b""
         if el >= tick["STATUS"]:
             tick["STATUS"] += 10
-            out += frame("STATUS", ms, 0x0102, 7, seq, seq // 40, 0, 2, 0, random.randint(3, 9), 0, 0x0F, b"\0\0")
+            out += frame("STATUS", ms, 0x0103, 7, seq, seq // 40, 0, 2, 0, random.randint(3, 9), 0, 0x0F, b"\0\0")
         if el >= tick["SNAIL"]:
             tick["SNAIL"] += 2
             bpm = 28 + 3 * math.sin(el / 60)
             wave = bytes(int(128 + 45 * math.exp(-((((el - 2 + i * 0.1) * bpm / 60) % 1) - 0.2) ** 2 / 0.01)
                              + random.uniform(-3, 3)) for i in range(20))
             beats = int(el * bpm / 60)
-            out += frame("SNAIL", ms, int(bpm * 10), int(60000 / bpm), beats, 82, 1, 610, 2030, wave, 20, b"\0\0")
+            bpm2 = 41 + 4 * math.sin(el / 45)                     # snail 2 (MAX30100): a different snail
+            out += frame("SNAIL", ms, int(bpm * 10), int(60000 / bpm), beats, 82, 1, 610, 2030, wave, 20, b"\0\0",
+                         int(bpm2 * 10), int(el * bpm2 / 60), 71, 1, 140 + random.randint(-10, 10), 9100 + random.randint(-40, 40))
         if el >= tick["BASE"]:
             tick["BASE"] += 2
             out += frame("BASE", ms, 101180 + random.randint(-8, 8), 2410, 1020, 12, -8, 1003, 3, -2, 1, 210, -95, 380, 196)
@@ -407,9 +425,9 @@ def demo_frames(stop):
             tick["ENV"] += 4
             dht_ok = random.random() > 0.15
             t = 2290 + int(30 * math.sin(el / 90))
-            out += frame("ENV", ms, t, 4520, 101150, t + 15, INV16, 0, 0, 8100, 0xF7 if dht_ok else 0xD7, b"\0\0\0",
+            out += frame("ENV", ms, t, 4520, 101150, t + 15, INV16, 0, 0, 9100, 0x77 if dht_ok else 0x57, b"\0\0\0",
                          t - 60 if dht_ok else INV16, 4700 if dht_ok else NO_RH, 640 + int(20 * math.sin(el / 30)),
-                         101140, t + 25)
+                         0, INV16)                               # second BMP280 removed in fw 1.3
         if out:
             yield out
         time.sleep(0.1)
@@ -486,9 +504,9 @@ pre{margin:0;max-height:260px;overflow:auto;font:12px/1.35 ui-monospace,Menlo,Co
 <section class="card"><h2>Console (text from the FC)</h2><pre id="con">nothing yet</pre></section>
 <section class="card"><h2>Last frames</h2><pre id="frm">nothing yet</pre></section></main>
 <script>
-const CH=[["Heartbeat waveform (8-bit ADC, 10 Hz)","wave",[["HB_ADC","wave"]],""],["Heart rate","bpm",[["bpm","bpm"]]," bpm"],
-["Temperature","t",[["SHT21","t_sht"],["DHT-11","t_dht"],["BMP280 #1","t_bmp1"],["BMP280 #2","t_bmp2"],["MS5611","t_ms5611"],["LM75A","t_lm75"]]," °C"],
-["Humidity","rh",[["SHT21","rh_sht"],["DHT-11","rh_dht"]]," %"],["Pressure","p",[["BMP280 #1","p_bmp1"],["BMP280 #2","p_bmp2"],["MS5611","p_ms5611"]]," hPa"],
+const CH=[["Snail 1 waveform (TCRT5000, 8-bit ADC, 10 Hz)","wave",[["TCRT5000","wave"]],""],["Heart rate","bpm",[["snail 1 · TCRT5000","bpm"],["snail 2 · MAX30100","bpm2"]]," bpm"],
+["Temperature","t",[["SHT21","t_sht"],["DHT-11","t_dht"],["BMP280","t_bmp1"],["MS5611","t_ms5611"],["LM75A","t_lm75"]]," °C"],
+["Humidity","rh",[["SHT21","rh_sht"],["DHT-11","rh_dht"]]," %"],["Pressure","p",[["BMP280","p_bmp1"],["MS5611","p_ms5611"]]," hPa"],
 ["MQ-7 output","mq",[["MQ-7","mq7"]]," mV"]];
 const COL=["#3867d6","#e8590c","#2f9e44","#ae3ec9","#0c8599","#c2255c"];
 const LBL={ok:"OK",warn:"WARN",fail:"FAIL",wait:"WAITING",stale:"STALE",na:"N/A"};

@@ -31,8 +31,8 @@
 
 /* Packet types and how often the flight controller sends them */
 #define SP_PKT_BASE    0x01      /* every 2 s,  41-byte frame: FC barometer, IMU, magnetometer, board temp */
-#define SP_PKT_SNAIL   0x10      /* every 2 s,  46-byte frame: heart rate + 2 s of waveform */
-#define SP_PKT_ENV     0x11      /* every 4 s,  43-byte frame: box sensors (SHT21, 2x BMP280, DHT-11, MQ-7...) */
+#define SP_PKT_SNAIL   0x10      /* every 2 s,  56-byte frame: both snails' heart rates + 2 s of snail 1 waveform */
+#define SP_PKT_ENV     0x11      /* every 4 s,  43-byte frame: box sensors (SHT21, BMP280, DHT-11, MQ-7...) */
 #define SP_PKT_STATUS  0x7F      /* every 10 s, 31-byte frame + once at boot: health counters */
 
 /* "No valid reading" markers */
@@ -57,8 +57,9 @@ typedef struct SP_PACKED {   /* 34 bytes */
   int16_t  fc_t_x8;          /* LM75A, C * 8 */
 } sp_base_t;
 
-typedef struct SP_PACKED {   /* 39 bytes */
+typedef struct SP_PACKED {   /* 49 bytes (firmware before 1.3 sent only the first 39) */
   uint32_t t_ms;             /* time of the LAST waveform sample */
+  /* snail 1: TCRT5000 -> analog amplifier -> PB0 */
   uint16_t bpm_x10;          /* heart rate * 10 (0 = no valid rate) */
   uint16_t last_ibi_ms;      /* last beat-to-beat interval */
   uint16_t beats_total;
@@ -69,30 +70,37 @@ typedef struct SP_PACKED {   /* 39 bytes */
   uint8_t  wave[20];         /* 10 Hz samples, 8-bit, oldest first */
   uint8_t  wave_n;
   uint8_t  rsv[2];
+  /* snail 2: MAX30100 optical sensor (I2C 0x57), added in firmware 1.3 */
+  uint16_t max_bpm_x10;      /* heart rate * 10 (0 = no valid rate) */
+  uint16_t max_beats_total;
+  uint8_t  max_quality;      /* 0..100 % */
+  uint8_t  max_flags;        /* bit0 beat seen, bit1 too much light, bit2 no pulse, bit3 not answering, bit4 no contact */
+  uint16_t max_amp;          /* pulse amplitude, IR counts (16-bit) */
+  uint16_t max_ir;           /* IR level: ~200 = nothing in front, thousands = on the shell */
 } sp_snail_t;
 
 typedef struct SP_PACKED {   /* 36 bytes (firmware before 1.2 sent only the first 24) */
   uint32_t t_ms;
   int16_t  box_t_c100;       /* SHT21 temperature, 0.01 C */
   uint16_t box_rh_c100;      /* SHT21 humidity, 0.01 % */
-  uint32_t box_press_pa;     /* BMP280 #1 (0x76) pressure, Pa (0 = invalid) */
-  int16_t  bmp_t_c100;       /* BMP280 #1 temperature */
+  uint32_t box_press_pa;     /* BMP280 (0x76) pressure, Pa (0 = invalid) */
+  int16_t  bmp_t_c100;       /* BMP280 temperature */
   int16_t  heater_t_c100;    /* rev B heater only; -32768 on rev C */
   uint8_t  heater_duty;
   uint8_t  heater_mode;
   uint16_t max30100_ir;
-  uint8_t  sensors_ok;       /* bit0 SHT21, 1 BMP280#1, 2 MAX30100, 3 heater NTC, 4 SD, 5 DHT-11, 6 MQ-7, 7 BMP280#2 */
+  uint8_t  sensors_ok;       /* bit0 SHT21, 1 BMP280, 2 MAX30100, 3 heater NTC, 4 SD, 5 DHT-11, 6 MQ-7, 7 second BMP280 (unused) */
   uint8_t  rsv[3];
   int16_t  dht_t_c100;       /* DHT-11 temperature, 0.01 C */
   uint16_t dht_rh_c100;      /* DHT-11 humidity, 0.01 % */
   uint16_t mq7_mv;           /* MQ-7 output, mV */
-  uint32_t box2_press_pa;    /* BMP280 #2 (0x77) pressure, Pa */
-  int16_t  bmp2_t_c100;      /* BMP280 #2 temperature */
+  uint32_t box2_press_pa;    /* second BMP280: removed in firmware 1.3, always 0 */
+  int16_t  bmp2_t_c100;      /* second BMP280: removed in firmware 1.3, always -32768 */
 } sp_env_t;
 
 typedef struct SP_PACKED {   /* 24 bytes */
   uint32_t t_ms;
-  uint16_t fw_version;       /* 0x0102 = 1.2 */
+  uint16_t fw_version;       /* 0x0103 = 1.3 */
   uint16_t boot_count;
   uint16_t frames_sent;      /* frames handed to the comm board */
   uint16_t acks_missed;      /* no 0x06 within 1.5 s */
@@ -110,7 +118,7 @@ typedef struct SP_PACKED {   /* 24 bytes */
 #endif
 
 typedef char sp_check_base[(sizeof(sp_base_t) == 34) ? 1 : -1];
-typedef char sp_check_snail[(sizeof(sp_snail_t) == 39) ? 1 : -1];
+typedef char sp_check_snail[(sizeof(sp_snail_t) == 49) ? 1 : -1];
 typedef char sp_check_env[(sizeof(sp_env_t) == 36) ? 1 : -1];
 typedef char sp_check_status[(sizeof(sp_status_t) == 24) ? 1 : -1];
 

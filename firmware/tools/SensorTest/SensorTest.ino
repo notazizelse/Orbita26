@@ -14,15 +14,17 @@
 //  Output: FCM USB Type-C (UART2, PA3/PA2), 115200 baud. Serial Monitor, any line ending.
 //  Keys:  t = run the full test again   s = I2C scan only
 //         l = live values every 2 s (default after the test)
-//         p = stream PB0 + PB1 at 50 Hz for the Serial Plotter      x = stop printing
+//         p = stream snail 1 (TCRT5000, PB0) + MQ-7 at 50 Hz for the Serial Plotter
+//         m = stream snail 2 (MAX30100 IR) at 100 Hz for the Serial Plotter   x = stop printing
 //
 //  What is tested (wiring: hardware/perfboard/SnailPulse_perfboard_build.html, steps 9-11):
 //    SnailPulse payload
-//      PB0  heartbeat amplifier output (HB_ADC)       analog
+//      PB0  SNAIL 1 pulse: TCRT5000 -> amplifier (HB_ADC)   analog
 //      PB1  MQ-7 module AO (CO gas)                   analog, module VCC on +3.3 V
 //      PC6  DHT-11 DATA                               digital, sensor VCC on +3.3 V
 //      I2C4 PD13 SDA / PD12 SCL:
-//           0x40 SHT21 (GY-21)  0x57 MAX30100  0x76 BMP280 #1 (SDO->GND)  0x77 BMP280 #2 (SDO->VCC)
+//           0x40 SHT21 (GY-21)  0x57 MAX30100 = SNAIL 2 pulse  0x76 BMP280 (SDO->GND)
+//           (the second BMP280 at 0x77 was removed on 30 Oct)
 //    Flight controller's own sensors, I2C1 PB7 SDA / PB6 SCL (read only)
 //           0x6A LSM6DS3   0x1C LIS3MDL   0x77 MS5611   0x4A LM75A
 // =====================================================================================
@@ -142,7 +144,7 @@ static bool pinDriven(uint32_t pin, float &swing) {
 
 // ------------------------------ values kept for the live view ------------------------------
 static float shtT = NAN, shtRH = NAN, msP = NAN, dhtT = NAN, dhtRH = NAN;
-static float bmpT[2] = {NAN, NAN}, bmpP[2] = {NAN, NAN};   // [0] = #1 at 0x76, [1] = #2 at 0x77
+static float bmpT[2] = {NAN, NAN}, bmpP[2] = {NAN, NAN};   // [0] = BMP280 at 0x76 ([1] unused since 30 Oct)
 static bool  haveSht = false, haveMax = false, haveMs = false;
 static uint8_t bmpAddr[2];
 static uint8_t nBmp = 0;
@@ -152,9 +154,9 @@ static const char *knownName(bool payload, uint8_t a) {
   if (payload) {
     switch (a) {
       case 0x40: return "SHT21 (GY-21)";
-      case 0x57: return "MAX30100";
-      case 0x76: return "BMP280 #1 (SDO->GND)";
-      case 0x77: return "BMP280 #2 (SDO->VCC)";
+      case 0x57: return "MAX30100 (snail 2 pulse)";
+      case 0x76: return "BMP280 (SDO->GND)";
+      case 0x77: return "a second BMP280? (not used since 30 Oct)";
     }
   } else {
     switch (a) {
@@ -264,19 +266,20 @@ static bool bmpRead(uint8_t a, const BmpCal &c, float &tC, float &pHpa) {
   pHpa = (float)(p / 256) / 100.0f;
   return true;
 }
-// Two BMP280 modules share I2C4: #1 with SDO -> GND (0x76, the original J8 one) and
-// #2 with SDO -> VCC (0x77, added 29 Oct). Both must answer.
+// One BMP280 on I2C4 with SDO -> GND (0x76, the J8 one). The second one (0x77) was removed
+// on 30 Oct; set N_BMP to 2 to test it again.
+#define N_BMP 1
 static void testBMP280() {
   nBmp = 0;
   const uint8_t addrs[2] = {0x76, 0x77};
-  const char *names[2] = {"BMP280 #1 0x76", "BMP280 #2 0x77"};
+  const char *names[2] = {"BMP280 0x76", "BMP280 #2 0x77"};
   const char *sdo[2] = {"GND", "VCC"};
-  for (uint8_t k = 0; k < 2; k++) {
+  for (uint8_t k = 0; k < N_BMP; k++) {
     uint8_t a = addrs[k];
     bmpT[k] = bmpP[k] = NAN;
     if (!i2cPing(PayWire, a)) {
       report(names[k], R_FAIL, "no answer (the module with SDO -> %s)", sdo[k]);
-      if (i2cPing(PayWire, addrs[1 - k])) hint("the other BMP280 answers: if both SDO pins are on the same rail, both sit at one address and clash");
+      if (i2cPing(PayWire, addrs[1 - k])) hint("a BMP280 answers at the other address: its SDO is on the wrong rail");
       else hint("check VCC = 3.3 V, GND, SCL -> PD12, SDA -> PD13, CSB not on GND");
       continue;
     }
@@ -293,21 +296,41 @@ static void testBMP280() {
 }
 
 // ================================ MAX30100 ================================
+// The FIFO holds 16 samples (0.16 s at 100 Hz) and DROPS new ones when full, so a plain read
+// returns an old sample. Clear it, let 2 fresh samples in, then read the newest.
 static bool maxReadIr(uint16_t &ir) {
-  uint8_t s[4];
+  if (!wrReg(PayWire, 0x57, 0x02, 0) || !wrReg(PayWire, 0x57, 0x03, 0) || !wrReg(PayWire, 0x57, 0x04, 0)) return false;
+  delay(25);
+  uint8_t wr = 0, s[4];
+  if (!rdReg(PayWire, 0x57, 0x02, &wr, 1) || (wr & 0x0F) == 0) return false;
+  if (!wrReg(PayWire, 0x57, 0x04, (uint8_t)((wr - 1) & 0x0F))) return false;
   if (!rdReg(PayWire, 0x57, 0x05, s, 4)) return false;
   ir = (uint16_t)s[0] << 8 | s[1];
   return true;
 }
+// 'm' stream: every IR sample (100 Hz) in Serial Plotter format.
+static void maxClear() { wrReg(PayWire, 0x57, 0x02, 0); wrReg(PayWire, 0x57, 0x03, 0); wrReg(PayWire, 0x57, 0x04, 0); }
+static void maxStream() {
+  if (!haveMax) { P("snail2_max30100_ir:0\r\n"); return; }
+  uint8_t p[3];
+  if (!rdReg(PayWire, 0x57, 0x02, p, 3)) return;          // WR_PTR, OVF_COUNTER, RD_PTR
+  if (p[1]) { maxClear(); return; }                        // overflowed: skip the old samples
+  uint8_t n = (uint8_t)((p[0] - p[2]) & 0x0F), s[4];
+  while (n--) {
+    if (!rdReg(PayWire, 0x57, 0x05, s, 4)) return;
+    P("snail2_max30100_ir:%u\r\n", (unsigned)((uint16_t)s[0] << 8 | s[1]));
+  }
+}
+
 static void testMAX30100() {
   haveMax = false;
   uint8_t id = 0;
   if (!i2cPing(PayWire, 0x57) || !rdReg(PayWire, 0x57, 0xFF, &id, 1)) {
-    report("MAX30100 0x57", R_FAIL, "no answer");
+    report("Snail2 MAX30100", R_FAIL, "no answer");
     hint("its board may pull SDA/SCL to 1.8 V: remove its three 4.7k pull-ups (guide, step 11)");
     return;
   }
-  if (id != 0x11) { report("MAX30100 0x57", R_FAIL, "part id 0x%02X (want 0x11)", id); return; }
+  if (id != 0x11) { report("Snail2 MAX30100", R_FAIL, "part id 0x%02X (want 0x11)", id); return; }
   bool ok = wrReg(PayWire, 0x57, 0x06, 0x40);                // reset
   delay(10);
   ok = ok && wrReg(PayWire, 0x57, 0x02, 0) && wrReg(PayWire, 0x57, 0x03, 0) && wrReg(PayWire, 0x57, 0x04, 0)
@@ -317,11 +340,12 @@ static void testMAX30100() {
   delay(120);
   uint8_t wp = 0;
   rdReg(PayWire, 0x57, 0x02, &wp, 1);
-  if (!ok || wp == 0) { report("MAX30100 0x57", R_FAIL, "id OK but its FIFO does not fill"); return; }
+  if (!ok || wp == 0) { report("Snail2 MAX30100", R_FAIL, "id OK but its FIFO does not fill"); return; }
   uint16_t ir = 0;
   maxReadIr(ir);
   haveMax = true;
-  report("MAX30100 0x57", R_PASS, "IR raw %u (put a finger on it: it should jump)", ir);
+  report("Snail2 MAX30100", R_PASS, "IR %u (~200 = nothing in front)", ir);
+  hint("pulse sensor of snail 2. On a shell or fingertip IR jumps to thousands; key 'm' + Serial Plotter shows the pulse");
 }
 
 // ================================ DHT-11 ================================
@@ -415,15 +439,15 @@ static void testHeartbeat() {
   }
   float mean = (sum / (float)N) * ADC_VREF / 4095.0f;
   float pp = (mx - mn) * ADC_VREF / 4095.0f;
-  if (!driven) { report("Heartbeat PB0", R_FAIL, "PB0 floating (swing %s V)", ff(swing)); hint("HB_ADC wire (R3/C3 node) not reaching PB0"); return; }
+  if (!driven) { report("Snail1 TCRT PB0", R_FAIL, "PB0 floating (swing %s V)", ff(swing)); hint("HB_ADC wire (R3/C3 node) not reaching PB0"); return; }
   if (mn < 30 || mx > 4065) {
-    report("Heartbeat PB0", R_WARN, "clipping: mean %s V, %u-%u counts", ff(mean), mn, mx);
+    report("Snail1 TCRT PB0", R_WARN, "clipping: mean %s V, %u-%u counts", ff(mean), mn, mx);
     hint("amp saturated: wait 10 s for C11 to settle, then check RV3 (SENSE ~1 V) and R16/R17");
     return;
   }
   bool ok = mean > 1.0f && mean < 2.3f;
-  report("Heartbeat PB0", ok ? R_PASS : R_WARN, "mean %s V (want 1.2-2.1)  p-p %s mV", ff(mean, 3), ff(pp * 1000, 0));
-  hint("finger on the TCRT5000, key 'p', Tools > Serial Plotter: a ~1 Hz wave");
+  report("Snail1 TCRT PB0", ok ? R_PASS : R_WARN, "mean %s V (want 1.2-2.1)  p-p %s mV", ff(mean, 3), ff(pp * 1000, 0));
+  hint("pulse sensor of snail 1. TCRT5000 on the shell (or a finger), key 'p', Tools > Serial Plotter: a slow regular wave");
 }
 
 // ================================ flight-controller service sensors (I2C1) ================================
@@ -518,14 +542,10 @@ static void testFcSensors() {
 
 // ================================ cross-checks ================================
 static void crossChecks() {
-  if (!isnan(bmpP[0]) && !isnan(bmpP[1])) {                // same room air: the two should agree
-    float dp = bmpP[1] - bmpP[0], dt = bmpT[1] - bmpT[0];
-    report("BMP280 #1 vs #2", (fabsf(dp) < 2 && fabsf(dt) < 2) ? R_PASS : R_WARN, "dP %s hPa  dT %s C (want < 2 each)", sg(dp), sg(dt));
-  }
-  for (uint8_t k = 0; k < 2; k++) {
+  for (uint8_t k = 0; k < N_BMP; k++) {
     if (isnan(bmpP[k]) || !haveMs) continue;
     float d = bmpP[k] - msP;
-    report(k ? "BMP #2 vs MS5611" : "BMP #1 vs MS5611", fabsf(d) < 3 ? R_PASS : R_WARN, "pressure differs by %s hPa (want < 3)", sg(d));
+    report(k ? "BMP #2 vs MS5611" : "BMP280 vs MS5611", fabsf(d) < 3 ? R_PASS : R_WARN, "pressure differs by %s hPa (want < 3)", sg(d));
   }
   float bt = !isnan(bmpT[0]) ? bmpT[0] : bmpT[1];
   if (haveSht && !isnan(bt)) {
@@ -554,14 +574,14 @@ static void runAll() {
   P("\r\n-- Payload sensors (I2C4)\r\n");
   testSHT21();
   testBMP280();
-  testMAX30100();
 
   P("\r\n-- New sensors on IntroBus_L pins\r\n");
   testDHT11();
   testMQ7();
 
-  P("\r\n-- Heartbeat amplifier\r\n");
+  P("\r\n-- Pulse sensors: snail 1 = TCRT5000 (PB0), snail 2 = MAX30100 (I2C4 0x57)\r\n");
   testHeartbeat();
+  testMAX30100();
 
   P("\r\n-- Flight controller's own sensors (I2C1)\r\n");
   testFcSensors();
@@ -575,7 +595,7 @@ static void runAll() {
   for (uint8_t i = 0; i < nRows; i++) P("  %s  %-17s %s\r\n", resName(rows[i].r), rows[i].name, rows[i].info);
   P("  %u PASS, %u WARN, %u FAIL  ->  %s\r\n", np, nw, nf, nf ? "fix the FAIL lines first" : (nw ? "works; read the WARN lines" : "ALL GOOD"));
   P("=========================================================\r\n");
-  P("keys: t = test again, s = scan, l = live values, p = plotter stream, x = stop\r\n");
+  P("keys: t = test again, s = scan, l = live values, p = snail 1 plot, m = snail 2 plot, x = stop\r\n");
 }
 
 // ================================ live view ================================
@@ -588,13 +608,15 @@ static void liveLine() {
     float t, p;
     if (bmpRead(bmpAddr[k], bcal[k], t, p)) P(" BMP%02X %shPa %sC |", bmpAddr[k], ff(p), ff(t));
   }
-  if (haveMax) { uint16_t ir; if (maxReadIr(ir)) P(" MAX IR %u |", ir); }
+
   float t, rh;
   if (dhtRead(t, rh) == 0) P(" DHT %sC %s%% |", ff(t, 1), ff(rh, 0)); else P(" DHT -- |");
   pinMode(PIN_DHT, INPUT_PULLUP);
   float v = adcVolts(PIN_MQ7_AO);
   P(" MQ7 %sV Rs %sk |", ff(v, 3), ff(mq7Rs(v) / 1000.0f, 1));
-  P(" HB %sV\r\n", ff(adcVolts(PIN_HB_ADC, 16), 3));
+  P(" SNAIL1 TCRT5000 %sV |", ff(adcVolts(PIN_HB_ADC, 16), 3));
+  uint16_t ir;
+  if (haveMax && maxReadIr(ir)) P(" SNAIL2 MAX30100 IR %u\r\n", ir); else P(" SNAIL2 MAX30100 --\r\n");
 }
 
 void setup() {
@@ -622,13 +644,18 @@ void loop() {
     else if (c == 's' || c == 'S') { P("\r\n"); scanBus(PayWire, true, "I2C4 payload"); scanBus(FcWire, false, "I2C1 FC service"); }
     else if (c == 'l' || c == 'L') viewMode = M_LIVE;
     else if (c == 'p' || c == 'P') viewMode = M_PLOT;
+    else if (c == 'm' || c == 'M') { viewMode = M_PLOT_MAX; maxClear(); }
     else if (c == 'x' || c == 'X') viewMode = M_IDLE;
   }
 
   if (viewMode == M_LIVE && now - tLive >= 2000) { tLive = now; liveLine(); }
   if (viewMode == M_PLOT && now - tPlot >= 20) {           // 50 Hz, Serial Plotter format
     tPlot = now;
-    P("hb:%d,mq7_mV:%d\r\n", analogRead(PIN_HB_ADC), (int)(analogRead(PIN_MQ7_AO) * 3300L / 4095));
+    P("snail1_tcrt5000:%d,mq7_mV:%d\r\n", analogRead(PIN_HB_ADC), (int)(analogRead(PIN_MQ7_AO) * 3300L / 4095));
+  }
+  if (viewMode == M_PLOT_MAX && now - tPlot >= 40) {        // MAX30100 FIFO: ~4 new samples every 40 ms
+    tPlot = now;
+    maxStream();
   }
   if (now - tLed >= 500) { tLed = now; digitalWrite(PIN_LED, !digitalRead(PIN_LED)); }   // alive blink
 }

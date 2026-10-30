@@ -16,7 +16,7 @@ static const size_t MAX_PAYLOAD = LORA_PACKET - FRAME_OVERHEAD;   // 51
 
 enum PacketType : uint8_t {
   PKT_BASE   = 0x01,   // FC service sensors (organizers' platform telemetry)
-  PKT_SNAIL  = 0x10,   // heartbeat result + 2 s of waveform
+  PKT_SNAIL  = 0x10,   // both pulse sensors: TCRT5000 result + 2 s of its waveform, MAX30100 result
   PKT_ENV    = 0x11,   // snail box environment + heater
   PKT_STATUS = 0x7F,   // health, counters, firmware version
 };
@@ -34,8 +34,9 @@ struct BasePayload {        // 34 bytes
 };
 
 static const uint8_t WAVE_N = 20;
-struct SnailPayload {       // 39 bytes
+struct SnailPayload {       // 49 bytes (fw 1.0-1.2 sent the first 39)
   uint32_t t_ms;            // time of the LAST waveform sample
+  // ---- pulse sensor 1: TCRT5000 -> analog band-pass amplifier -> HB_ADC (PB0)
   uint16_t bpm_x10;         // heart rate, beats/min * 10 (0 = no valid rate)
   uint16_t last_ibi_ms;     // last inter-beat interval
   uint16_t beats_total;     // beats counted since boot
@@ -46,27 +47,37 @@ struct SnailPayload {       // 39 bytes
   uint8_t  wave[WAVE_N];    // HB_ADC at 10 Hz, 8-bit (adc >> 4), oldest first
   uint8_t  wave_n;          // valid samples in wave[] (normally 20)
   uint8_t  rsv[2];
+  // ---- pulse sensor 2: MAX30100 optical (I2C4, 0x57), added in fw 1.3 (30 Oct 2026).
+  // Appended so 39-byte frames from older firmware still decode.
+  uint16_t max_bpm_x10;     // heart rate, beats/min * 10 (0 = no valid rate)
+  uint16_t max_beats_total; // beats counted since boot
+  uint8_t  max_quality;     // 0..100 signal quality
+  uint8_t  max_flags;       // bit0 beat in this window, bit1 saturated (too much light), bit2 no pulse,
+                            // bit3 MAX30100 not answering, bit4 no contact (nothing in front of it)
+  uint16_t max_amp;         // pulse amplitude, IR counts (16-bit)
+  uint16_t max_ir;          // newest IR sample: ~200 = nothing in front, thousands = contact
 };
+static const size_t SNAIL_V1_SIZE = 39;   // SnailPayload size before fw 1.3
 
 struct EnvPayload {         // 36 bytes (fw 1.0-1.1 sent the first 24)
   uint32_t t_ms;
   int16_t  box_t_c100;      // SHT21 temperature
   uint16_t box_rh_c100;     // SHT21 humidity, 0.01 %
-  uint32_t box_press_pa;    // BMP280 #1 (0x76, SDO -> GND) pressure, Pa (0 = invalid)
-  int16_t  bmp_t_c100;      // BMP280 #1 temperature
+  uint32_t box_press_pa;    // BMP280 (0x76, SDO -> GND) pressure, Pa (0 = invalid)
+  int16_t  bmp_t_c100;      // BMP280 temperature
   int16_t  heater_t_c100;   // NTC1 (heater surface); -32768 on rev C (no heater)
   uint8_t  heater_duty;     // 0..255 PWM duty commanded
   uint8_t  heater_mode;     // 0 off, 1 box control (SHT21), 2 heater-only (NTC1), 3 blind 20%
   uint16_t max30100_ir;     // backup optical sensor, raw IR
   uint8_t  sensors_ok;      // bit0 SHT21, bit1 BMP280, bit2 MAX30100, bit3 NTC1, bit4 SD,
-                            // bit5 DHT-11, bit6 MQ-7, bit7 BMP280 #2
+                            // bit5 DHT-11, bit6 MQ-7, bit7 second BMP280 (always 0 since fw 1.3)
   uint8_t  rsv[3];
   // ---- added in fw 1.2 (29 Oct 2026). Appended so 24-byte frames from older firmware still decode.
   int16_t  dht_t_c100;      // DHT-11 temperature, 0.01 C (-32768 = no valid reading)
   uint16_t dht_rh_c100;     // DHT-11 humidity, 0.01 % (0xFFFF = no valid reading)
   uint16_t mq7_mv;          // MQ-7 AO at PB1, mV, 1 s average (0xFFFF = MQ-7 disabled)
-  uint32_t box2_press_pa;   // BMP280 #2 (0x77, SDO -> VCC) pressure, Pa (0 = invalid)
-  int16_t  bmp2_t_c100;     // BMP280 #2 temperature (-32768 = invalid)
+  uint32_t box2_press_pa;   // second BMP280 (0x77) pressure, Pa (0 = invalid). Removed in fw 1.3: always 0
+  int16_t  bmp2_t_c100;     // second BMP280 temperature (-32768 = invalid). Removed in fw 1.3: always -32768
 };
 static const size_t ENV_V1_SIZE = 24;     // EnvPayload size before fw 1.2
 
@@ -90,6 +101,7 @@ struct StatusPayload {      // 24 bytes
 static_assert(sizeof(BasePayload)   <= MAX_PAYLOAD, "BASE too big");
 static_assert(sizeof(SnailPayload)  <= MAX_PAYLOAD, "SNAIL too big");
 static_assert(sizeof(EnvPayload)    <= MAX_PAYLOAD, "ENV too big");
+static_assert(sizeof(SnailPayload) == 49, "SNAIL layout changed: update ground/snailpulse_ground.py too");
 static_assert(sizeof(EnvPayload) == 36, "ENV layout changed: update ground/snailpulse_ground.py too");
 static_assert(sizeof(StatusPayload) <= MAX_PAYLOAD, "STATUS too big");
 
