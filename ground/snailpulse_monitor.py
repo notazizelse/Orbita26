@@ -168,7 +168,7 @@ def short(name, d):
     if name == "SNAIL":
         return f"snail 1 {d['bpm']:.1f} bpm q{d['quality']}% · snail 2 {d['max_bpm']:.1f} bpm q{d['max_quality']}%"
     if name == "ENV":
-        return f"SHT {fmt(c100(d['box_t_c100']), ' °C')}, ok=0x{d['sensors_ok']:02X}"
+        return f"box {fmt(c100(d['bmp_t_c100']), ' °C')}, {fmt(rh(d['dht_rh_c100']), ' %RH', 0)}, ok=0x{d['sensors_ok']:02X}"
     if name == "BASE":
         return f"{fmt(hpa(d['press_pa']), ' hPa')}, |a| {math.sqrt(d['ax_mg']**2 + d['ay_mg']**2 + d['az_mg']**2):.0f} mg"
     if name == "STATUS":
@@ -299,8 +299,17 @@ def evaluate(m, now):
                 rows.append(row(name, "warn" if backup else "fail", value, why_bad))
 
         t, h = c100(en["box_t_c100"]), rh(en["box_rh_c100"])
-        sensor("SHT21 temp/humidity (0x40)", 1, f"{fmt(t, ' °C')}, {fmt(h, ' %RH')}",
-               in_range(t, -40, 60) and in_range(h, 0, 100), "not answering on I²C4 (PD13/PD12)")
+        fwv = L["STATUS"][2]["fw_version"] if "STATUS" in L else 0
+        sht_fitted = not (fwv >= 0x0105 and t is None and not ok & 1)     # fw 1.5+: SHT21 switched off in config.h
+        if sht_fitted:
+            sensor("SHT21 temp/humidity (0x40)", 1, f"{fmt(t, ' °C')}, {fmt(h, ' %RH')}",
+                   in_range(t, -40, 60) and in_range(h, 0, 100), "not answering on I²C4 (PD13/PD12)")
+        else:
+            rows.append(row("SHT21 (GY-21)", "na", "not fitted", "removed 30 Oct; box air comes from the BMP280 and the DHT-11"))
+            bt, dh = c100(en["bmp_t_c100"]), rh(en["dht_rh_c100"])
+            rows.append(row("Box air (BMP280 T, DHT-11 RH)", "ok" if in_range(bt, -40, 60) and in_range(dh, 0, 100) else "warn",
+                            f"{fmt(bt, ' °C')}, {fmt(dh, ' %RH', 0)}", "" if in_range(bt, -40, 60) and in_range(dh, 0, 100)
+                            else "one of the two is missing: see their rows"))
         p, t1 = hpa(en["box_press_pa"]), c100(en["bmp_t_c100"])
         sensor("BMP280 (0x76, SDO→GND)", 2, f"{fmt(p, ' hPa')}, {fmt(t1, ' °C')}",
                in_range(p, 5, 1200) and in_range(t1, -40, 60), "not answering at 0x76: check SDO→GND and I²C4")
@@ -322,8 +331,10 @@ def evaluate(m, now):
             rows.append(row("Heater NTC (rev B)", "ok" if ok & 8 else "fail", fmt(c100(en["heater_t_c100"]), " °C")))
         else:
             rows.append(row("Heater NTC", "na", "not fitted", "rev C has no heater"))
-        rows.append(row("Sensor-OK bits", "ok" if ok & 0x77 == 0x77 else "warn", f"0x{ok:02X}",
-                        "healthy rev C board = 0x77 (bit 3 heater and bit 7 second BMP280: not fitted)"))
+        need = 0x77 if sht_fitted else 0x76
+        rows.append(row("Sensor-OK bits", "ok" if ok & need == need else "warn", f"0x{ok:02X}",
+                        f"healthy board = 0x{need:02X} (not fitted: bit 3 heater, bit 7 second BMP280"
+                        + ("" if sht_fitted else ", bit 0 SHT21") + ")"))
     G.append({"title": "Payload sensors (I²C4, PC6, PB1)", "rows": rows})
 
     # --- heartbeats (SNAIL): snail 1 on the TCRT5000, snail 2 on the MAX30100
@@ -381,9 +392,10 @@ def evaluate(m, now):
     e = en or {}
     b = ba or {}
     cross("BMP280 vs MS5611 pressure", hpa(e.get("box_press_pa")), hpa(b.get("press_pa")), 3, " hPa", "bench only")
-    cross("SHT21 vs DHT-11 temperature", c100(e.get("box_t_c100", INV16)), c100(e.get("dht_t_c100", INV16)), 3, " °C", "DHT-11 is ±2 °C")
-    cross("SHT21 vs BMP280 temperature", c100(e.get("box_t_c100", INV16)), c100(e.get("bmp_t_c100", INV16)), 3, " °C", "")
-    cross("SHT21 vs DHT-11 humidity", rh(e.get("box_rh_c100", NO_RH)), rh(e.get("dht_rh_c100", NO_RH)), 15, " %", "DHT-11 is ±5 %RH")
+    cross("DHT-11 vs BMP280 temperature", c100(e.get("dht_t_c100", INV16)), c100(e.get("bmp_t_c100", INV16)), 3, " °C", "DHT-11 is ±2 °C")
+    if c100(e.get("box_t_c100", INV16)) is not None:                      # only while an SHT21 is fitted
+        cross("SHT21 vs DHT-11 temperature", c100(e.get("box_t_c100", INV16)), c100(e.get("dht_t_c100", INV16)), 3, " °C", "DHT-11 is ±2 °C")
+        cross("SHT21 vs DHT-11 humidity", rh(e.get("box_rh_c100", NO_RH)), rh(e.get("dht_rh_c100", NO_RH)), 15, " %", "DHT-11 is ±5 %RH")
     G.append({"title": "Cross-checks", "rows": rows})
     return G
 
@@ -403,14 +415,14 @@ def demo_frames(stop):
         seq += 1
         return SYNC + head + body + struct.pack("<H", crc16_ccitt(head + body))
 
-    yield b"SnailPulse demo: simulated flight controller (fw 1.4)\r\n"
+    yield b"SnailPulse demo: simulated flight controller (fw 1.5)\r\n"
     while not stop.is_set():
         el = time.time() - t0
         ms = int(el * 1000)
         out = b""
         if el >= tick["STATUS"]:
             tick["STATUS"] += 10
-            out += frame("STATUS", ms, 0x0104, 7, seq, seq // 40, 0, 2, 0, random.randint(3, 9), 0, 0x0F, b"\0\0")
+            out += frame("STATUS", ms, 0x0105, 7, seq, seq // 40, 0, 2, 0, random.randint(3, 9), 0, 0x0F, b"\0\0")
         if el >= tick["SNAIL"]:
             tick["SNAIL"] += 2
             bpm = 28 + 3 * math.sin(el / 60)
@@ -427,7 +439,7 @@ def demo_frames(stop):
             tick["ENV"] += 4
             dht_ok = random.random() > 0.15
             t = 2290 + int(30 * math.sin(el / 90))
-            out += frame("ENV", ms, t, 4520, 101150, t + 15, INV16, 0, 0, 9100, 0x77 if dht_ok else 0x57, b"\0\0\0",
+            out += frame("ENV", ms, INV16, NO_RH, 101150, t + 15, INV16, 0, 0, 9100, 0x76 if dht_ok else 0x56, b"\0\0\0",
                          t - 60 if dht_ok else INV16, 4700 if dht_ok else NO_RH, 960 + int(30 * math.sin(el / 30)),
                          0, INV16)                               # second BMP280 removed in fw 1.3
         if out:

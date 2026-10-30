@@ -3,7 +3,8 @@
 // Arduino IDE: STM32 MCU based boards -> Generic STM32H7 Series -> Generic H750VBTx
 #pragma once
 
-#define SP_FW_VERSION 0x0104          // v1.4 = DHT-11 and MQ-7 on +5 V: PC6 without internal pull-up, MQ-7 divider (30 Oct)
+#define SP_FW_VERSION 0x0105          // v1.5 = no SHT21 (GY-21 removed 30 Oct): box T from the BMP280, RH from the DHT-11
+                                      // v1.4 = DHT-11 and MQ-7 on +5 V: PC6 without internal pull-up, MQ-7 divider (30 Oct)
                                       // v1.3 = two snails: TCRT5000 (snail 1) + MAX30100 (snail 2), SNAIL 49 B;
                                       //        BMP280 #2 removed (30 Oct)
                                       // v1.2 = rev C, no heater, + DHT-11 / MQ-7 / second BMP280 (29 Oct)
@@ -14,7 +15,7 @@
 #define PIN_DHT11       PC6           // J6.3  DHT-11 DATA (one-wire, pull-up on the module to its +5 V; PC6 is 5 V-tolerant)
 #define PIN_NTC1_ADC    PB1           // rev B only: heater thermistor (same pin as the MQ-7)
 #define PIN_HEATER_PWM  PC6           // rev B only: -> R11 1k -> IRLZ44N gate (same pin as the DHT-11)
-#define PIN_I2C4_SDA    PD13          // J6.5  payload I2C bus (SHT21, BMP280, MAX30100)
+#define PIN_I2C4_SDA    PD13          // J6.5  payload I2C bus (BMP280, MAX30100; SHT21 if SP_HAS_SHT21)
 #define PIN_I2C4_SCL    PD12          // J6.4
 #define PIN_I2C1_SDA    PB7           // service bus (FC sensors) - read only for us
 #define PIN_I2C1_SCL    PB6
@@ -69,6 +70,9 @@
 // ---------------- DHT-11 + MQ-7 (added 29 Oct 2026) ----------------
 #define SP_HAS_DHT11      1           // 0 = PC6 never touched
 #define SP_HAS_MQ7        1           // 0 = PB1 never sampled
+#define SP_HAS_SHT21      0           // GY-21 removed 30 Oct (it held SCL low). 0 = 0x40 never touched; ENV sends
+                                      // its fields as invalid (-32768 / 0xFFFF), sensors_ok bit 0 = 0, healthy = 0x76.
+                                      // Box air: temperature from the BMP280, humidity from the DHT-11.
 #define SP_HAS_BMP280_2   0           // second BMP280 at 0x77: removed 30 Oct. 0 = ENV sends its fields as invalid
 #define DHT11_PERIOD_MS   2000        // DHT-11 allows at most one reading per second
 

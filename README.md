@@ -53,7 +53,7 @@ New documents:
 | **B. 1.65 V reference** | Divider + MCP6002 buffer; centres the signal in the 0–3.3 V ADC range | 3.3 V / 2, filtered at 3.2 Hz |
 | **C1. Heater switch** | 3 × 150 Ω heater, IRLZ44N low-side switch, PWM from PC6 | 50 Ω · 0.30 A · 4.4 W at 14.8 V |
 | **C2. Thermistors + hardware cutoff** | NTC1 → PB1 for firmware control; NTC2 → LM393 cuts the heater at ~40 °C with no software | 40 °C ↔ 1.14 V · −30 mV/°C |
-| **D. Connectors** | Locking JST-XH plugs to the sensor, thermistors, flight controller, SHT21, BMP280 and MAX30100 | I²C4 = PD12/PD13 · power from IntroBus_L and X8 |
+| **D. Connectors** | Locking JST-XH plugs to the sensor, thermistors, flight controller, BMP280 and MAX30100 | I²C4 = PD12/PD13 · power from IntroBus_L and X8 |
 
 Full sheet: [Schematic](#schematic) above.
 
@@ -77,7 +77,7 @@ SnailPulse doesn't replace any platform board. It adds one payload board and our
 | **J6** (5-pin) | IntroBus_L | PB0 heartbeat ADC · PB1 MQ-7 AO via 10k/20k divider (rev B: heater thermistor) · PC6 DHT-11 data (rev B: heater PWM) · DHT-11 and MQ-7 on +5 V · PD12/PD13 I²C4 |
 | **J5** (3-pin) | IntroBus_L | +5V_IS · +3V3_IS · GND |
 | **J2** (XT30) | Power module X8 | 14.8 V for the heater only (red +, black −) |
-| **J7 / J8 / J9** | SHT21 · BMP280 · MAX30100 (snail 2's pulse sensor) | I²C4 at 0x40 · 0x76 · 0x57 |
+| **J7 / J8 / J9** | (empty: GY-21 removed 30 Oct) · BMP280 · MAX30100 (snail 2's pulse sensor) | I²C4 at — · 0x76 · 0x57 |
 
 Data path: PB0 (snail 1) is sampled at 50 Hz in a timer interrupt and the MAX30100 (snail 2) is read at 100 Hz over I²C4 → one beat detector per snail → binary packet → UART1 → communication board → LoRa 433 MHz → ground LoRa-UART module → `ground/snailpulse_ground.py`. The full story, with the pin table, power budget and failure handling, is in [docs/Firmware_and_Integration.md](docs/Firmware_and_Integration.md).
 
@@ -154,7 +154,7 @@ The flight controller sends four binary packet types. Each fits in one 58-byte L
 |---|---|---|
 | SNAIL | 2 s | snail 1 (TCRT5000): heart rate, last beat interval, beat count, signal quality, 2 s of waveform at 10 Hz · snail 2 (MAX30100): heart rate, beat count, quality, IR level |
 | BASE | 2 s | flight-controller sensors: pressure, ISA altitude, accel, gyro, magnetometer, board temperature |
-| ENV | 4 s | box temperature, humidity and pressure (SHT21, BMP280), DHT-11 temperature/humidity, MQ-7 gas level, sensor status |
+| ENV | 4 s | box temperature and pressure (BMP280), DHT-11 temperature/humidity, MQ-7 gas level, sensor status |
 | STATUS | 10 s | firmware version, boot count, radio and I²C/SD error counters, watchdog resets |
 
 Total is about 435 bit/s, 18 % of the 2.4 kbit/s link. Everything is also logged to microSD at full rate.
@@ -170,7 +170,7 @@ Ground station: `python3 ground/snailpulse_monitor.py --port <port> --baud <rate
 
 ## Bill of materials (main parts)
 
-TCRT5000 · MCP6002 · LM393 · IRLZ44N · 3 × 150 Ω 5 W · 2 × NTC 10 k · trimmers 50 k and 10 k · SHT21 (GY-21) · BMP280 · MAX30100 · JST-XH connectors · XT30. The full list with prices is in `hardware/SnailPulse_BOM.xlsx` (≈ 403 000 UZS including spares).
+TCRT5000 · MCP6002 · LM393 · IRLZ44N · 3 × 150 Ω 5 W · 2 × NTC 10 k · trimmers 50 k and 10 k · BMP280 · MAX30100 · JST-XH connectors · XT30. The full list with prices is in `hardware/SnailPulse_BOM.xlsx` (≈ 403 000 UZS including spares).
 
 ## Credits
 

@@ -23,7 +23,8 @@
 //      PB1  MQ-7 module AO (CO gas)                   analog, module VCC on +5 V, AO through a 10k/20k divider
 //      PC6  DHT-11 DATA                               digital, sensor VCC on +5 V (PC6 is 5 V-tolerant)
 //      I2C4 PD13 SDA / PD12 SCL:
-//           0x40 SHT21 (GY-21)  0x57 MAX30100 = SNAIL 2 pulse  0x76 BMP280 (SDO->GND)
+//           0x57 MAX30100 = SNAIL 2 pulse  0x76 BMP280 (SDO->GND)
+//           (0x40 SHT21 / GY-21 removed on 30 Oct: set HAVE_SHT21 1 to test one again)
 //           (the second BMP280 at 0x77 was removed on 30 Oct)
 //    Flight controller's own sensors, I2C1 PB7 SDA / PB6 SCL (read only)
 //           0x6A LSM6DS3   0x1C LIS3MDL   0x77 MS5611   0x4A LM75A
@@ -46,6 +47,7 @@
 #define MQ7_RL_OHM    1000.0f  // MQ-7 module load resistor: "102" on it = 1000, "103" = 10000 (unplug the divider to measure AO<->GND)
 #define MQ7_DIV_TOP   10000.0f // divider in the AO wire: AO -> 10k -> PB1 -> 20k -> GND. Needed on 5 V: PB1 is not 5 V-tolerant
 #define MQ7_DIV_BOT   20000.0f //   as an analog input. No divider (3.3 V module only): MQ7_DIV_TOP 0
+#define HAVE_SHT21    0        // GY-21 (SHT21, 0x40) removed 30 Oct; box air = BMP280 temperature + DHT-11 humidity
 #define DHT_VCC_5V    1        // 1 = DHT-11 on +5 V: its pull-up goes to 5 V, so PC6's internal pull-up (to 3.3 V) stays off
 #define MIRROR_UART1  0        // 1 = also print on UART1 (PA10/PA9, 115200 8E1): Bluetooth module / comm board
 #define ADC_VREF      3.3f
@@ -161,7 +163,7 @@ static uint8_t nBmp = 0;
 static const char *knownName(bool payload, uint8_t a) {
   if (payload) {
     switch (a) {
-      case 0x40: return "SHT21 (GY-21)";
+      case 0x40: return HAVE_SHT21 ? "SHT21 (GY-21)" : "SHT21 (GY-21) - not used by the firmware";
       case 0x57: return "MAX30100 (snail 2 pulse)";
       case 0x76: return "BMP280 (SDO->GND)";
       case 0x77: return "a second BMP280? (not used since 30 Oct)";
@@ -223,6 +225,10 @@ static bool shtRead() {
 }
 static void testSHT21() {
   haveSht = false;
+  if (!HAVE_SHT21) {
+    P("  [ -- ] SHT21 0x40        not fitted (HAVE_SHT21 0): box air = BMP280 temperature + DHT-11 humidity\r\n");
+    return;
+  }
   if (!i2cPing(PayWire, 0x40)) { report("SHT21 0x40", R_FAIL, "no answer"); hint("check GY-21 VIN = 3.3 V, GND, SCL -> PD12, SDA -> PD13"); return; }
   sendCmd(PayWire, 0x40, 0xFE); delay(20);           // soft reset
   if (!shtRead()) { report("SHT21 0x40", R_FAIL, "answers, but the reading or its CRC failed"); return; }
@@ -575,6 +581,10 @@ static void crossChecks() {
   if (haveSht && !isnan(bt)) {
     float d = bt - shtT;
     report("BMP280 vs SHT21", fabsf(d) < 3 ? R_PASS : R_WARN, "temperature differs by %s C (want < 3)", sg(d));
+  }
+  if (!haveSht && !isnan(bt) && !isnan(dhtT)) {            // no SHT21: the two box thermometers check each other
+    float d = dhtT - bt;
+    report("DHT-11 vs BMP280", fabsf(d) < 3 ? R_PASS : R_WARN, "temperature differs by %s C (want < 3; DHT-11 is +-2 C)", sg(d, 1));
   }
   if (haveSht && !isnan(dhtT)) {
     float dt = dhtT - shtT, dh = dhtRH - shtRH;

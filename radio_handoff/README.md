@@ -49,7 +49,7 @@ AA 55 | type | seq | len | payload (len bytes) | CRC-16 low | CRC-16 high
 |---|---|---|---|---|
 | `0x10` | SNAIL | 2 s | 56 | snail 1 (TCRT5000): heart rate ×10, beat interval, beat count, quality, flags, pulse amplitude, DC level, 20 waveform samples (10 Hz); snail 2 (MAX30100): heart rate ×10, beat count, quality, flags, amplitude, IR level. Firmware before 1.3 sent 46 |
 | `0x01` | BASE | 2 s | 41 | FC barometer (MS5611) pressure/temp/altitude, accelerometer, gyro, magnetometer, board temperature |
-| `0x11` | ENV | 4 s | 43 | SHT21 T/RH, BMP280 P/T (second-BMP280 fields always empty), DHT-11 T/RH, MQ-7 mV, MAX30100, sensor-OK bits |
+| `0x11` | ENV | 4 s | 43 | SHT21 T/RH (invalid since fw 1.5), BMP280 P/T (second-BMP280 fields always empty), DHT-11 T/RH, MQ-7 mV, MAX30100, sensor-OK bits |
 | `0x7F` | STATUS | 10 s + at boot | 31 | firmware version, boot count, frames sent / no ACK / dropped, I²C and SD errors, worst loop time, reset cause, FC sensor-OK bits |
 
 Field by field: the `struct`s in `snailpulse_frames.h` (the comments give units and "invalid" markers).

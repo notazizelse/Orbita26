@@ -81,8 +81,8 @@ typedef struct SP_PACKED {   /* 49 bytes (firmware before 1.3 sent only the firs
 
 typedef struct SP_PACKED {   /* 36 bytes (firmware before 1.2 sent only the first 24) */
   uint32_t t_ms;
-  int16_t  box_t_c100;       /* SHT21 temperature, 0.01 C */
-  uint16_t box_rh_c100;      /* SHT21 humidity, 0.01 % */
+  int16_t  box_t_c100;       /* SHT21 temperature, 0.01 C (-32768 since firmware 1.5: not fitted, use bmp_t_c100) */
+  uint16_t box_rh_c100;      /* SHT21 humidity, 0.01 % (0xFFFF since firmware 1.5: use dht_rh_c100) */
   uint32_t box_press_pa;     /* BMP280 (0x76) pressure, Pa (0 = invalid) */
   int16_t  bmp_t_c100;       /* BMP280 temperature */
   int16_t  heater_t_c100;    /* rev B heater only; -32768 on rev C */

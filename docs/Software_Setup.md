@@ -119,6 +119,8 @@ With the ST-Link wired to the flight controller (see the box below) and the FC p
 
 The STM32 board package, its compiler, OpenOCD and our three libraries all download from **GitHub**. Only arduino-cli's own small helper tools (ctags, serial discovery) and the board/library lists come from `downloads.arduino.cc`, which is blocked. The Arduino IDE also tries to install Arduino AVR Boards on its first start.
 
+> **"Failed to install library: 'Arduino_BuiltIn:1.0.0' … Download failed … EOF" when the IDE opens: ignore it.** Until that install succeeds, the IDE tries again on every start to fetch its example libraries (Firmata, Servo, …) from `downloads.arduino.cc`. SnailPulse uses none of them: compiling and uploading still work. Close the message. To make it stop, check that `~/Documents/Arduino/libraries` contains `Firmata`, `Servo` and the rest (the offline bundle puts them there). If they are missing, unpack the bundle again: `tar -xzf arduino-offline-mac-arm64.tgz -C ~`.
+
 **Route A (used on 29 Oct 2026): an offline bundle built on any computer outside Russia, Windows included.**
 
 ```bash
@@ -174,7 +176,7 @@ st-flash --reset write ~/snail-build/SensorTest/SensorTest.ino.bin 0x08000000
 
 In the Arduino IDE the same is **Upload** with Tools → Upload method → **OpenOCD STLink (SWD)** (no ST software needed) plus Tools → Optimize → Debug (-Og) and Debug symbols for debugging.
 
-Same for the other sketches: `firmware/SnailPulse_Flight` (flight firmware) and `firmware/tools/HB_Tune`. Each output folder gets a `.elf` (for the debugger) and a `.bin`.
+Same for the other sketches: `firmware/SnailPulse_Flight` (flight firmware) `firmware/tools/HB_Tune` and `firmware/tools/MAX30100_Pulse`. Each output folder gets a `.elf` (for the debugger) and a `.bin`.
 
 Flashing straight with the CLI also works:
 

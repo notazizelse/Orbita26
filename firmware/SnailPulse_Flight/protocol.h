@@ -61,8 +61,8 @@ static const size_t SNAIL_V1_SIZE = 39;   // SnailPayload size before fw 1.3
 
 struct EnvPayload {         // 36 bytes (fw 1.0-1.1 sent the first 24)
   uint32_t t_ms;
-  int16_t  box_t_c100;      // SHT21 temperature
-  uint16_t box_rh_c100;     // SHT21 humidity, 0.01 %
+  int16_t  box_t_c100;      // SHT21 temperature (-32768 since fw 1.5: SHT21 not fitted, use bmp_t_c100)
+  uint16_t box_rh_c100;     // SHT21 humidity, 0.01 % (0xFFFF since fw 1.5: use dht_rh_c100)
   uint32_t box_press_pa;    // BMP280 (0x76, SDO -> GND) pressure, Pa (0 = invalid)
   int16_t  bmp_t_c100;      // BMP280 temperature
   int16_t  heater_t_c100;   // NTC1 (heater surface); -32768 on rev C (no heater)

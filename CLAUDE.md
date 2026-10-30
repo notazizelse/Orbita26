@@ -6,15 +6,16 @@ Read this first, then `HANDOFF.md` for where the work stands.
 
 A payload for the IntroSat.Platform 3U CubeSat (Orbita 2026 stratospheric flight). An IR sensor on a live snail's shell feeds an analog band-pass amplifier; the satellite's **flight controller** (FC, STM32H750VBT6) counts heartbeats and radios them down over LoRa, plus box environment sensors. The payload board is a **perfboard with no processor**: all code runs on the FC.
 
-Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11 and an MQ-7 were added. Since fw 1.3 (30 Oct) there are **two snails**: snail 1 = TCRT5000 → amplifier → PB0, snail 2 = MAX30100 on I²C4. The second BMP280 (0x77) was dropped again. Since fw 1.4 the DHT-11 and the MQ-7 run on **+5 V** (MQ-7 AO through a 10k/20k divider).
+Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11 and an MQ-7 were added. Since fw 1.3 (30 Oct) there are **two snails**: snail 1 = TCRT5000 → amplifier → PB0, snail 2 = MAX30100 on I²C4. The second BMP280 (0x77) was dropped again. Since fw 1.4 the DHT-11 and the MQ-7 run on **+5 V** (MQ-7 AO through a 10k/20k divider). Since fw 1.5 the **GY-21 (SHT21) is removed**: box temperature comes from the BMP280, humidity from the DHT-11 (`SP_HAS_SHT21 0`).
 
 ## Map
 
 | Path | What |
 |---|---|
-| `firmware/SnailPulse_Flight/` | Flight firmware (fw 1.4). `config.h` = every pin, address, period |
+| `firmware/SnailPulse_Flight/` | Flight firmware (fw 1.5). `config.h` = every pin, address, period |
 | `firmware/tools/SensorTest/` | Bench sketch: PASS/FAIL for every sensor over the FC USB-C (115200) |
 | `firmware/tools/HB_Tune/` | Streams PB0 (+ MQ-7) to the Serial Plotter for tuning RV3 |
+| `firmware/tools/MAX30100_Pulse/` | Snail 2 bench check: prints bpm and beat count from the MAX30100 (own simple detector, not the flight one) |
 | `firmware/tests/test_host.cpp` | PC unit tests for the Arduino-free code |
 | `firmware/build_backup/` | E32 config script, rev C heater patch (no prebuilt firmware: always build from source) |
 | `ground/snailpulse_ground.py` | Ground-station decoder (serial → console + CSV + plots); `Parser`/`decode` are reused by the monitor |
@@ -39,9 +40,9 @@ Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11 and an
 | I²C4 SDA / SCL | PD13 / PD12 | payload bus |
 | I²C1 SDA / SCL | PB7 / PB6 | FC service bus, read only for us |
 | Radio UART1 | PA10 / PA9 | 115200 8E1 to the comm board, ACK 0x06 |
-| USB-C (debug) | PA3 / PA2 | UART2, used by SensorTest / HB_Tune |
+| USB-C (debug) | PA3 / PA2 | UART2, used by SensorTest / HB_Tune / MAX30100_Pulse |
 
-I²C4: SHT21 0x40 · **MAX30100 0x57 (snail 2 pulse, FIFO drained every 40 ms)** · **BMP280 0x76 (SDO→GND, J8)**. I²C1: LSM6DS3 0x6A, LIS3MDL 0x1C, LM75A 0x4A, MS5611 0x77.
+I²C4: **MAX30100 0x57 (snail 2 pulse, FIFO drained every 40 ms)** · **BMP280 0x76 (SDO→GND, J8)**. I²C1: LSM6DS3 0x6A, LIS3MDL 0x1C, LM75A 0x4A, MS5611 0x77. (SHT21 0x40 removed 30 Oct; ENV sends its fields as invalid, healthy `sensors_ok` = 0x76.)
 
 ## Build and test
 

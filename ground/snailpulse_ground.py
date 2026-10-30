@@ -125,7 +125,7 @@ def scaled(name, d):
     if name == "ENV":
         rh = lambda v: "n/a" if v == 0xFFFF else f"{v / 100:.0f}"
         mbar = lambda v: "n/a" if v == 0 else f"{v / 100:.1f}"
-        line = (f"box {f(d['box_t_c100'])} C {d['box_rh_c100'] / 100:.1f} %RH | "
+        line = ((f"SHT21 {f(d['box_t_c100'])} C {rh(d['box_rh_c100'])} %RH | " if d["box_t_c100"] != inv else "") +
                 f"BMP280 {mbar(d['box_press_pa'])} mbar {f(d['bmp_t_c100'])} C | "
                 + (f"BMP#2 {mbar(d['box2_press_pa'])} mbar {f(d['bmp2_t_c100'])} C | " if d["box2_press_pa"] else "") +
                 f"DHT {f(d['dht_t_c100'], 100)} C {rh(d['dht_rh_c100'])} %RH | "
@@ -238,7 +238,9 @@ def plot(folder):
         t = [int(r["t_ms"]) / 60000 for r in env]
         def temp(col):   # -32768 = sensor missing (rev C has no heater NTC) -> leave a gap
             return [float("nan") if int(r[col]) == -32768 else int(r[col]) / 100 for r in env]
-        ax[2].plot(t, temp("box_t_c100"), label="box (SHT21)")
+        if any(int(r["box_t_c100"]) != -32768 for r in env):       # SHT21 removed in fw 1.5
+            ax[2].plot(t, temp("box_t_c100"), label="box (SHT21)")
+        ax[2].plot(t, temp("bmp_t_c100"), label="box (BMP280)")
         if "dht_t_c100" in env[0] and any(int(r["dht_t_c100"]) != -32768 for r in env):
             ax[2].plot(t, temp("dht_t_c100"), label="box (DHT-11)")
         if any(int(r["heater_t_c100"]) != -32768 for r in env):

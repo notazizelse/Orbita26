@@ -52,6 +52,7 @@ If it fails with "Error: open failed" or "init mode failed": ST-Link not plugged
 |---|---|---|---|
 | 1 | `firmware/tools/SensorTest/SensorTest.ino` | Serial Monitor 115200, or the ground monitor's Console panel | Every line PASS (perfboard guide step 11 has the voltage checks to do first). Key `m` + Serial Plotter: snail 2's pulse from the MAX30100 |
 | 2 | `firmware/tools/HB_Tune/HB_Tune.ino` | Serial Plotter 115200 | A slow regular wave from snail 1 (TCRT5000); set RV3 |
+| 2b | `firmware/tools/MAX30100_Pulse/MAX30100_Pulse.ino` | Serial Monitor 115200 (key `p` + Serial Plotter for the wave) | Snail 2: a `BEAT` line per beat and the bpm. A fingertip shows 50–100 bpm within ~5 s; IR must stay under 65,000 (keys `+`/`-` set the LED) |
 | 3 | `firmware/SnailPulse_Flight/SnailPulse_Flight.ino` | Ground monitor on the FC's USB-C | Everything OK except "Comm board ACKs" if no comm board is on |
 | 4 | (same) + comm board + antennas + ground E32 | Ground monitor on the ground E32's port | Same values over the air; "Comm board ACKs" OK |
 
@@ -70,7 +71,7 @@ It opens `http://localhost:8765`. Every sensor gets a row with **OK / WARN / FAI
 | What you see | Likely cause |
 |---|---|
 | Data in: WAITING | Wrong port or baud, FC not powered, or the code is not the flight firmware (SensorTest prints text: see the Console panel) |
-| FAIL on one I²C4 sensor (SHT21, BMP280, MAX30100) | Its address wiring (BMP280 SDO → GND) or the I²C4 wires PD13/PD12; SensorTest's scan shows who answers |
+| FAIL on one I²C4 sensor (BMP280, MAX30100) | Its address wiring (BMP280 SDO → GND) or the I²C4 wires PD13/PD12; SensorTest's scan shows who answers |
 | DHT-11 FAIL now and then | One missed reading is normal; FAIL all the time = DATA not on PC6 or no 5 V on the module |
 | MQ-7 FAIL | 0 V: AO wire, divider or power off. ≈4.95 V: off the scale, or the divider is missing (measure PB1: it must stay under 3.3 V). It also needs ~3 min to warm up |
 | Snail 1 "no pulse" | TCRT5000 off the shell, or RV3 not set (step 2) |

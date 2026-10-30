@@ -7,7 +7,7 @@ It keeps the platform's normal job and adds the SnailPulse packets on top:
 |---|---|
 | **Organizers' code** — [IntroStratLib](https://github.com/Obu-IntroSat/IntroStratLib-Public) v0.1.2 (copy in `libraries/IntroStratLib`, not committed) | LSM6DS3 accel/gyro, LIS3MDL magnetometer, LM75A board temperature on the I2C1 service bus |
 | **Platform rules** from the IntroSat guide | UART1 (PA10/PA9) → communication board → LoRa E32-433T30D, 115200 8E1, wait for ACK `0x06` after each block; microSD on SDMMC2 |
-| **SnailPulse (ours)** | Heartbeat sampling and beat detection, box sensors (SHT21, BMP280) and snail 2's MAX30100 pulse sensor on I2C4, DHT-11, MQ-7, heater control, binary packets, SD log, watchdog |
+| **SnailPulse (ours)** | Heartbeat sampling and beat detection, box sensors (BMP280; SHT21 off since fw 1.5) and snail 2's MAX30100 pulse sensor on I2C4, DHT-11, MQ-7, heater control, binary packets, SD log, watchdog |
 
 ## Folder
 
@@ -20,7 +20,7 @@ firmware/
 │   ├── optical_pulse.h       snail 2: MAX30100 IR samples → heartbeat detector (unit-tested)
 │   ├── max30100_fifo.h       MAX30100 FIFO pointer maths (unit-tested)
 │   ├── thermal.h/.cpp        thermistor maths + heater controller
-│   ├── payload_sensors.*     SHT21, BMP280 (0x76), MAX30100 drivers (I2C4) + DHT-11 (PC6)
+│   ├── payload_sensors.*     BMP280 (0x76), MAX30100, SHT21 (off) drivers (I2C4) + DHT-11 (PC6)
 │   ├── dht11_decode.h        DHT-11 bit/checksum decoding (unit-tested)
 │   ├── mq7_scale.h           MQ-7 reading through the 5 V divider (unit-tested)
 │   ├── fc_baro.h, ms5611_comp.h   non-blocking MS5611 with correct cold compensation
@@ -29,6 +29,7 @@ firmware/
 ├── tools/SensorTest/         bench sketch: PASS/FAIL check of every sensor (payload, DHT-11 on PC6,
 │                             MQ-7 on PB1, BMP280, both pulse sensors, FC's own sensors), output on the FC USB-C
 ├── tools/HB_Tune/            bench sketch: stream snail 1 (HB_ADC, + MQ-7) to the Serial Plotter to set RV3
+├── tools/MAX30100_Pulse/     bench sketch: snail 2 (MAX30100) bpm + beat count on the FC USB-C, LED current keys
 ├── tests/test_host.cpp       PC unit tests (no board needed)
 └── libraries/IntroStratLib/  organizers' library (git-ignored copy)
 ```
@@ -50,7 +51,7 @@ Every frame is `AA 55 | type | seq | len | payload | CRC16`. Each frame is at mo
 |---|---|---|---|
 | `0x10` SNAIL | 2 s | 56 | Snail 1 (TCRT5000): bpm×10, last interval, beat count, quality 0–100, flags, amplitude, DC level, **20 waveform samples (10 Hz)**. Snail 2 (MAX30100, fw 1.3): bpm×10, beat count, quality, flags, amplitude, IR level |
 | `0x01` BASE | 2 s | 41 | MS5611 pressure/temp/altitude (ISA), accel, gyro, mag, LM75A |
-| `0x11` ENV | 4 s | 43 | SHT21 box T/RH, BMP280 box pressure/T, MAX30100 IR, sensor-OK bits, **DHT-11 T/RH, MQ-7 mV** (fw 1.2; heater fields and the second-BMP280 fields stay empty since fw 1.3) |
+| `0x11` ENV | 4 s | 43 | SHT21 box T/RH (invalid since fw 1.5), BMP280 box pressure/T, MAX30100 IR, sensor-OK bits, **DHT-11 T/RH, MQ-7 mV** (fw 1.2; heater fields and the second-BMP280 fields stay empty since fw 1.3) |
 | `0x7F` STATUS | 10 s | 31 | firmware version, boot count, frames sent / no-ACK / dropped, I2C and SD errors, worst loop time, watchdog reset, FC sensor-OK bits (LSM6DS3, LIS3MDL, LM75A, MS5611) |
 
 This averages about **57 bytes/s ≈ 0.46 kbit/s** against the 2.4 kbit/s air rate. That leaves room for retries and for other teams on nearby channels.
@@ -77,4 +78,4 @@ python ../../ground/snailpulse_ground.py --file frames.bin --out /tmp/gs   # dec
 
 These tests check: the CRC, the frame parser (with garbage and corrupted frames), the beat detector, NTC maths (40 °C → 1.143 V), heater fallbacks, a 3-hour thermal simulation at −40 °C, BMP280 and MS5611 against the datasheet examples, ISA altitude, and the ACK/timeout/overflow logic of the radio queue.
 
-> Not yet verified on real hardware: firmware 1.4 (30 Oct; two snails, one BMP280, DHT-11 and MQ-7 on 5 V) passes the PC tests; firmware 1.2 (29 Oct) **compiles** for the Generic H750VBTx with STM32 board package 2.12.0, IntroStratLib, STM32SD 1.5.0 and FatFs 4.0.4 (83 KB of 128 KB flash, no warnings in our code), and the PC tests pass, but it has **not run on the board yet**. First bench run: flash `tools/SensorTest` and get 0 FAIL, then flash this sketch, check that STATUS says fw 1.4 on the ground station and that ENV shows ok=0x77.
+> Not yet verified on real hardware: firmware 1.5 (30 Oct; two snails, one BMP280, DHT-11 and MQ-7 on 5 V, no SHT21) passes the PC tests; firmware 1.2 (29 Oct) **compiles** for the Generic H750VBTx with STM32 board package 2.12.0, IntroStratLib, STM32SD 1.5.0 and FatFs 4.0.4 (83 KB of 128 KB flash, no warnings in our code), and the PC tests pass, but it has **not run on the board yet**. First bench run: flash `tools/SensorTest` and get 0 FAIL, then flash this sketch, check that STATUS says fw 1.5 on the ground station and that ENV shows ok=0x76.

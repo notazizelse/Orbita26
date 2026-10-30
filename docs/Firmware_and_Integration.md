@@ -18,7 +18,7 @@ flowchart LR
   S2["Snail 2 heart"] --> MX["MAX30100<br/>(I²C4, 100 Hz IR)"]
   MX --> DET2["Beat detector #2"]
   DET2 --> PKT
-  ENV["SHT21 · BMP280<br/>(I²C4)"] --> PKT2["ENV packet"]
+  ENV["BMP280 · DHT-11<br/>(I²C4, PC6)"] --> PKT2["ENV packet"]
   FC["FC sensors: MS5611, LSM6DS3,<br/>LIS3MDL, LM75A (I²C1)"] --> PKT3["BASE packet"]
   PKT & PKT2 & PKT3 --> Q["ACK-gated radio queue"]
   Q -->|"UART1 115200 8E1"| CB["IntroSat comm board<br/>E32-433T30D LoRa"]
@@ -51,7 +51,7 @@ From the pinout table in the IntroSat guide, matched to our connectors J5 (power
 | J6 | 1 | HB_ADC | **PB0** | ADC | Snail 1 heartbeat amplifier output |
 | J6 | 2 | NTC1_ADC → **MQ7_AO** | **PB1** | ADC | Rev B: heater thermistor TH1. Rev C + fw 1.2: MQ-7 analog out. Since fw 1.4 the module is on 5 V and AO reaches PB1 through a 10 kΩ / 20 kΩ divider |
 | J6 | 3 | PWM → **DHT_DATA** | **PC6** | HRTIM_CHA1 / GPIO | Rev B: heater MOSFET gate (through R11). Rev C + fw 1.2: DHT-11 data. Since fw 1.4 the module is on 5 V; PC6 is 5 V-tolerant as a digital pin |
-| J6 | 4 | SCL | **PD12** | SCL4 | I²C4 clock to SHT21, BMP280, MAX30100 |
+| J6 | 4 | SCL | **PD12** | SCL4 | I²C4 clock to BMP280, MAX30100 |
 | J6 | 5 | SDA | **PD13** | SDA4 | I²C4 data |
 | J5 | 1 | +5V | +5V_IS | — | LED driver R1, LM393 comparator U5 |
 | J5 | 2 | +3V3 | +3V3_IS | — | Op-amp U2, sensors, thermistor dividers |
@@ -65,7 +65,7 @@ Why these pins: PB0 and PB1 are the two plain ADC inputs on the payload header, 
 | Rail | Our load | Channel limit | Margin |
 |---|---|---|---|
 | +5V_IS | ≈ 170 mA (IR LED 17 mA, MQ-7 heater ≈ 150 mA, DHT-11 < 3 mA) | 3 A | huge |
-| +3V3_IS | < 25 mA (op-amp, dividers, three I²C modules) | 3 A | huge |
+| +3V3_IS | < 25 mA (op-amp, dividers, two I²C modules) | 3 A | huge |
 | 14.8 V (X8) | ≤ 0.34 A (heater 50 Ω; 5.6 W at a full 16.8 V pack) | 6 A | large |
 
 The heater is the only real load. At 100 % duty it draws 0.30 A at 14.8 V (4.4 W), but the controller normally runs it far below that.
@@ -84,7 +84,7 @@ firmware/SnailPulse_Flight/
 ├── config.h                every pin, period, threshold and I²C address in one place
 ├── heartbeat.h/.cpp        beat detector (plain C++, unit-tested on a PC)
 ├── thermal.h/.cpp          thermistor maths + heater PI controller (unit-tested)
-├── payload_sensors.h/.cpp  SHT21, BMP280, MAX30100 drivers on I²C4
+├── payload_sensors.h/.cpp  SHT21 (off since fw 1.5), BMP280, MAX30100 drivers on I²C4
 ├── fc_baro.h               non-blocking MS5611 driver for the FCM barometer
 ├── ms5611_comp.h           MS5611 datasheet compensation + ISA altitude
 ├── bmp280_comp.h           Bosch BMP280 compensation formulas
@@ -115,7 +115,7 @@ The order matters, so here it is step by step:
 3. **Was the last reset a watchdog reset?** `IWatchdog.isReset()` is checked and remembered. It goes out in the next STATUS packet, so the ground knows if the satellite rebooted itself.
 4. UART1 to the comm board starts at 115200 baud, 8E1.
 5. I²C1 (service bus): IMU, magnetometer, LM75A and our MS5611 driver start. Each result is stored as an "OK" flag. A missing sensor does not stop the boot.
-6. I²C4 (payload bus) starts at 100 kHz, then SHT21, BMP280 and MAX30100. Again, a failure is noted and the flight continues.
+6. I²C4 (payload bus) starts at 100 kHz, then BMP280 and MAX30100 (the SHT21 only if `SP_HAS_SHT21` is 1). Again, a failure is noted and the flight continues.
 7. SD card: up to three tries. It reads `BOOT.TXT`, adds 1 and writes it back. That **boot count** names the log files (`HB007.CSV`, `TLM007.CSV`), so a reboot never overwrites old data.
 8. **TIM6 starts at 50 Hz** and calls `onSampleTick()`.
 9. **Watchdog starts with 4 s.** From now on, if `loop()` ever stops for 4 s (a stuck I²C bus, a hung SD card), the MCU resets.
@@ -235,7 +235,7 @@ A known limit, documented in the schematic review: if the TH2 wire breaks, the c
 
 | Sensor | Bus / address | Driver | Notes |
 |---|---|---|---|
-| SHT21 (GY-21) | I²C4 · 0x40 | ours, non-blocking state machine | Box air temperature and humidity. The heater controller's main input. |
+| SHT21 (GY-21) | I²C4 · 0x40 | ours, non-blocking state machine | **Removed 30 Oct (fw 1.5).** Was box air temperature and humidity. `SP_HAS_SHT21 0`: never touched; box temperature now from the BMP280, humidity from the DHT-11. |
 | BMP280 | I²C4 · 0x76 (SDO → GND via J8.5) | ours, Bosch integer formulas | Box pressure. Range 300–1100 hPa, which is fine inside a sealed box. If it drops out, it is re-initialised once a second (up to 100 errors). |
 | MAX30100 | I²C4 · 0x57 | ours, IR only, FIFO read every 40 ms | **Snail 2's pulse sensor** (section 7b); heart rate in the SNAIL packet, IR level in ENV too. If it stops answering it is re-initialised every 5 s. Many boards pull I²C up to 1.8 V: if it won't answer, remove its 4.7 kΩ pull-ups. |
 | DHT-11 (added 29 Oct) | GPIO · PC6 | ours (`DHT11` in `payload_sensors`, decoding in `dht11_decode.h`) | Second box temperature/humidity, ±2 °C / ±5 %RH, read every 2 s. Runs on 5 V since 30 Oct: its pull-up holds DATA at 5 V, so PC6 idles as a plain input (the STM32's own pull-up goes to 3.3 V and would fight it). The 20 ms start signal is non-blocking; the ~5 ms bit read starts right after the 50 Hz ISR so the interrupt can't stretch a bit. A bad checksum is just retried; 3 failures in a row clear its OK bit. |
@@ -268,7 +268,7 @@ The guide also recommends sending raw binary numbers instead of text. A text lin
 |---|---|---|---|
 | `0x10` SNAIL | 2 s | 56 B | Snail 1 (TCRT5000): bpm × 10, last interval, beat count, quality, flags (beat seen / clipped / no signal), pulse amplitude, DC level, **20 waveform samples**. Snail 2 (MAX30100, fw 1.3): bpm × 10, beat count, quality, flags (beat / saturated / no pulse / not answering / no contact), amplitude, IR level |
 | `0x01` BASE | 2 s | 41 B | MS5611 pressure, temperature, ISA altitude; acceleration, rotation, magnetic field; FCM board temperature |
-| `0x11` ENV | 4 s | 43 B | box T and RH (SHT21), box pressure and T (BMP280), MAX30100 IR, sensor-OK bits, DHT-11 T and RH, MQ-7 mV (fw 1.2; the heater fields are empty on rev C) |
+| `0x11` ENV | 4 s | 43 B | box T and RH (SHT21, invalid since fw 1.5), box pressure and T (BMP280), MAX30100 IR, sensor-OK bits, DHT-11 T and RH, MQ-7 mV (fw 1.2; the heater fields are empty on rev C) |
 | `0x7F` STATUS | 10 s | 31 B | firmware version, boot count, frames sent / un-ACKed / dropped, I²C and SD errors, worst loop time, watchdog-reset flag, FC sensor-OK bits (`fc_ok`: bit0 LSM6DS3, bit1 LIS3MDL, bit2 LM75A, bit3 MS5611) |
 
 Average load: 23 + 20.5 + 7.75 + 3.1 ≈ **54 bytes/s ≈ 0.43 kbit/s**, about 18 % of the 2.4 kbit/s air rate. The spare capacity absorbs retries and slow ACKs.
@@ -346,7 +346,7 @@ This checks the CRC, the frame parser (including corrupted frames), the beat det
 1. Power module with the 12 V supply, payload channels on (X6 jumpers), antenna connected before any transmission.
 2. Flash `tools/HB_Tune`. Hold the TCRT5000 over the snail's heart, measure SENSE (J1 pin 4) to GND and turn **RV3** until it reads about 0.8–2.0 V. Wait ~5 s after each turn for the high-pass to settle. Open the Serial Plotter: a slow regular wave every 1–10 s should appear.
 3. Set **RV2** so its wiper reads ≈ 1.1 V (≈ 40 °C cutoff). Warm TH2 with your fingers or a hair dryer and confirm the heater switches off.
-4. Flash `SnailPulse_Flight`. Start the ground script. Check that a STATUS packet arrives and says fw 1.4, then that the ENV sensors-OK bits read 0x77 (rev C: no heater NTC and no second BMP280, so bits 3 and 7 stay clear). Put the MAX30100 on snail 2 (or a fingertip) and wait ~5 s for its heart rate.
+4. Flash `SnailPulse_Flight`. Start the ground script. Check that a STATUS packet arrives and says fw 1.5, then that the ENV sensors-OK bits read 0x76 (no SHT21, no heater NTC and no second BMP280, so bits 0, 3 and 7 stay clear). Put the MAX30100 on snail 2 (or a fingertip) and wait ~5 s for its heart rate.
 5. Long run: the full stack in a freezer for ~3 hours, watching box temperature, heater duty and heart rate on the ground screen.
 
 ### 13.4 Not yet verified on real hardware

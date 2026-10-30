@@ -10,7 +10,7 @@
 //    * heartbeat sampling (PB0, 50 Hz, timer interrupt) + beat detection
 //    * two snails: snail 1 on the TCRT5000 (PB0, 50 Hz, timer interrupt), snail 2 on the MAX30100
 //      (I2C4, 100 Hz); each has its own beat detector, both sent in the SNAIL packet
-//    * box environment: SHT21, BMP280 (0x76) on I2C4; DHT-11 on PC6; MQ-7 on PB1
+//    * box environment: BMP280 (0x76) on I2C4; DHT-11 on PC6; MQ-7 on PB1 (SHT21 only if SP_HAS_SHT21)
 //    * (rev B only, SP_HEATER_ENABLED 1: heater NTC on PB1 + heater PWM on PC6)
 //    * binary packets (protocol.h) that each fit one 58-byte LoRa packet
 //
@@ -315,7 +315,9 @@ void setup() {
 
   PayloadWire.begin();
   PayloadWire.setClock(100000);
-  sht.begin();
+#if SP_HAS_SHT21
+  sht.begin();                         // never started: sht.ok() stays false, ENV sends invalid values
+#endif
   bmp.begin();
 #if SP_HAS_BMP280_2
   bmp2.begin();
@@ -374,7 +376,9 @@ void loop() {
   }
 
   // 3) non-blocking sensors
+#if SP_HAS_SHT21
   sht.poll(now);
+#endif
 #if SP_HAS_DHT11
   dht.poll(now, micros() - last_tick_us < 4000);   // >= 16 ms until the next 50 Hz tick
 #endif
