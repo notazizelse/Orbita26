@@ -6,8 +6,10 @@
 #
 # Run from the Orbita26 folder (takes 5-15 min the first time, mostly downloads):
 #     bash scripts/mac_setup.sh
-# Where arduino.cc is blocked (Russia), add the Arduino15 folder from a Mac outside (docs/Software_Setup.md):
-#     bash scripts/mac_setup.sh --arduino15 ~/Downloads/arduino15-mac-arm64.tgz
+# Where arduino.cc is blocked (Russia), give it the offline bundle (scripts/build_mac_arduino_bundle.py,
+# or an Arduino15 folder packed on a Mac outside; docs/Software_Setup.md section 4):
+#     bash scripts/mac_setup.sh --arduino15 ~/Downloads/arduino-offline-mac-arm64.tgz
+# An Arduino IDE .dmg next to it (or in ~/Downloads) is installed from there instead of from GitHub.
 #
 # Nothing is deleted: the old IDE settings go to ~/arduino-ide-backup-<date>/.
 
@@ -82,13 +84,25 @@ EOF
 ok "IDE config: STM32 board URL added, start-up update check off"
 
 # ---------------------------------------------------------------------------------------------
-say "4/7 Arduino IDE app (clean install of 2.3.10 from GitHub)"
-if brew list --cask arduino-ide >/dev/null 2>&1; then
+say "4/7 Arduino IDE app"
+DMG=""
+for d in "$(dirname "${TGZ:-/nonexistent}")" "$HOME/Downloads" "$HOME/Desktop"; do
+  [ -z "$DMG" ] && DMG=$(ls "$d"/arduino-ide_*_macOS_*.dmg 2>/dev/null | head -1)
+done
+if [ -n "$DMG" ]; then
+  echo "  installing from $DMG"
+  MNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk -F'	' '/\/Volumes\//{print $NF}' | tail -1)
+  [ -d "$MNT/Arduino IDE.app" ] || die "no Arduino IDE.app inside $DMG"
+  [ -d "$APP" ] && { mkdir -p "$BK"; mv "$APP" "$BK/"; }
+  ditto "$MNT/Arduino IDE.app" "$APP" && hdiutil detach -quiet "$MNT"
+  xattr -dr com.apple.quarantine "$APP" 2>/dev/null
+  ok "Arduino IDE installed from $(basename "$DMG")"
+elif brew list --cask arduino-ide >/dev/null 2>&1; then
   brew upgrade --cask arduino-ide >/dev/null 2>&1
   ok "Arduino IDE (Homebrew) is installed"
 else
   brew install --cask --force arduino-ide || die "Arduino IDE install failed"
-  ok "Arduino IDE installed to /Applications"
+  ok "Arduino IDE installed to /Applications (from GitHub)"
 fi
 if [ "$ARCH" = arm64 ] && [ "$(lipo -archs "$APP/Contents/MacOS/Arduino IDE" 2>/dev/null)" = x86_64 ]; then
   warn "the IDE in /Applications is an Intel build on an Apple-silicon Mac; run: brew reinstall --cask --force arduino-ide"
@@ -98,8 +112,14 @@ fi
 say "5/7 STM32 board package $CORE_VER + libraries"
 if [ -n "$TGZ" ]; then
   if [ -d "$A15/packages" ]; then mkdir -p "$BK"; mv "$A15" "$BK/Arduino15-before"; fi
-  tar -xzf "$TGZ" -C "$HOME/Library" || die "could not unpack $TGZ"
-  ok "Arduino15 folder unpacked from $(basename "$TGZ")"
+  # Offline bundle = paths from your home folder (Library/Arduino15, Documents/Arduino);
+  # an Arduino15 folder packed on another Mac starts with Arduino15/.
+  if tar -tzf "$TGZ" | head -3 | grep -q '^Library/'; then DEST="$HOME"; else DEST="$HOME/Library"; fi
+  tar -xzf "$TGZ" -C "$DEST" || die "could not unpack $TGZ"
+  # Files copied from another computer can carry the "downloaded" flag, which makes macOS block
+  # the compiler and tools on first use. Clear it.
+  xattr -dr com.apple.quarantine "$A15" "$HOME/Documents/Arduino" 2>/dev/null
+  ok "unpacked $(basename "$TGZ")"
 fi
 [ -f "$A15/arduino-cli.yaml" ] || arduino-cli config init >/dev/null
 arduino-cli config get board_manager.additional_urls 2>/dev/null | grep -q stm32duino \
@@ -109,7 +129,10 @@ arduino-cli config set library.enable_unsafe_install true
 ARD=$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://downloads.arduino.cc/packages/package_index.json)
 GH=$(curl -s -o /dev/null -w '%{http_code}' -m 20 -L "$STM_URL")
 echo "  downloads.arduino.cc: HTTP $ARD    github.com: HTTP $GH"
-[ "$GH" = 200 ] || die "github.com is not reachable from this network; nothing else can be installed"
+if [ "$GH" != 200 ]; then
+  [ -n "$TGZ" ] && warn "github.com not reachable: using only the offline bundle" \
+    || die "github.com is not reachable from this network; get the offline bundle (docs/Software_Setup.md)"
+fi
 
 HAVE_BUILTIN=0; [ -d "$A15/packages/builtin/tools/ctags" ] && HAVE_BUILTIN=1
 if [ "$ARD" != 200 ] && [ $HAVE_BUILTIN = 0 ]; then
@@ -117,14 +140,21 @@ if [ "$ARD" != 200 ] && [ $HAVE_BUILTIN = 0 ]; then
   warn "Get the Arduino15 folder from a Mac outside (docs/Software_Setup.md, section 4), then run:"
   warn "    bash scripts/mac_setup.sh --arduino15 <that .tgz file>"
   CORE_OK=0
+elif arduino-cli core list 2>/dev/null | grep -q "STMicroelectronics:stm32 *$CORE_VER"; then
+  CORE_OK=1; ok "STM32 board package $CORE_VER already installed"
 else
   arduino-cli core update-index || warn "index update had errors (normal where arduino.cc is blocked)"
   if arduino-cli core install "STMicroelectronics:stm32@$CORE_VER"; then CORE_OK=1; else CORE_OK=0; warn "board package install failed"; fi
 fi
-arduino-cli lib install --git-url \
-  https://github.com/stm32duino/STM32SD.git#1.5.0 \
-  https://github.com/stm32duino/FatFs.git#4.0.4 \
-  https://github.com/Obu-IntroSat/IntroStratLib-Public.git#0.1.2 >/dev/null 2>&1
+LIBDIR="$HOME/Documents/Arduino/libraries"
+if [ -d "$LIBDIR/STM32SD" ] && [ -d "$LIBDIR/FatFs" ] && [ -d "$LIBDIR/IntroStratLib-Public" ]; then
+  ok "libraries already installed"
+else
+  arduino-cli lib install --git-url \
+    https://github.com/stm32duino/STM32SD.git#1.5.0 \
+    https://github.com/stm32duino/FatFs.git#4.0.4 \
+    https://github.com/Obu-IntroSat/IntroStratLib-Public.git#0.1.2 >/dev/null 2>&1
+fi
 arduino-cli lib list 2>/dev/null | grep -Ei "STM32SD|FatFs|IntroStrat" | sed 's/^/  /'
 
 # ---------------------------------------------------------------------------------------------

@@ -6,13 +6,13 @@ Read this first, then `HANDOFF.md` for where the work stands.
 
 A payload for the IntroSat.Platform 3U CubeSat (Orbita 2026 stratospheric flight). An IR sensor on a live snail's shell feeds an analog band-pass amplifier; the satellite's **flight controller** (FC, STM32H750VBT6) counts heartbeats and radios them down over LoRa, plus box environment sensors. The payload board is a **perfboard with no processor**: all code runs on the FC.
 
-Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11, an MQ-7 and a second BMP280 were added.
+Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11 and an MQ-7 were added. Since fw 1.3 (30 Oct) there are **two snails**: snail 1 = TCRT5000 → amplifier → PB0, snail 2 = MAX30100 on I²C4. The second BMP280 (0x77) was dropped again.
 
 ## Map
 
 | Path | What |
 |---|---|
-| `firmware/SnailPulse_Flight/` | Flight firmware (fw 1.2). `config.h` = every pin, address, period |
+| `firmware/SnailPulse_Flight/` | Flight firmware (fw 1.3). `config.h` = every pin, address, period |
 | `firmware/tools/SensorTest/` | Bench sketch: PASS/FAIL for every sensor over the FC USB-C (115200) |
 | `firmware/tools/HB_Tune/` | Streams PB0 (+ MQ-7) to the Serial Plotter for tuning RV3 |
 | `firmware/tests/test_host.cpp` | PC unit tests for the Arduino-free code |
@@ -20,7 +20,8 @@ Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11, an MQ
 | `ground/snailpulse_ground.py` | Ground-station decoder (serial → console + CSV + plots); `Parser`/`decode` are reused by the monitor |
 | `ground/snailpulse_monitor.py` | Live ground screen in the browser: every sensor OK/WARN/FAIL + charts (`--demo`, `--file`) |
 | `radio_handoff/` | For the radio technician: link contract, `snailpulse_frames.h` (C99 parser + structs), FC hook template, ground receiver |
-| `scripts/mac_setup.sh` | Mac setup: fixes a stuck Arduino IDE, installs core/libs/ST-Link tools, `.venv` for the monitor |
+| `scripts/mac_setup.sh` | Mac setup: fixes a stuck Arduino IDE, installs core/libs/ST-Link tools, `.venv` for the monitor; `--arduino15 <bundle>` works with no arduino.cc |
+| `scripts/build_mac_arduino_bundle.py` | Builds that offline Arduino bundle for a Mac on any PC outside Russia (keeps Unix modes/symlinks, nothing unpacked locally) |
 | `docs/Bench_Test.md` | Cables, power order, upload settings, what the monitor's states mean |
 | `hardware/perfboard/SnailPulse_perfboard_build.html` | **Main build guide** (interactive hole-by-hole layout, steps, multimeter checks) |
 | `docs/SnailPulse_RevC_Walkthrough.html` | Schematic walkthrough (1 MB, embedded SVG; edit text only) |
@@ -32,7 +33,7 @@ Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11, an MQ
 
 | Signal | FC pin | Notes |
 |---|---|---|
-| Heartbeat amp (HB_ADC) | PB0 (ADC) | J6.1, sampled 50 Hz in the TIM6 ISR |
+| Snail 1 heartbeat amp (HB_ADC) | PB0 (ADC) | J6.1, sampled 50 Hz in the TIM6 ISR |
 | MQ-7 AO | PB1 (ADC) | J6.2. Module on 3.3 V. **PB1 is not 5 V-tolerant as an analog input** |
 | DHT-11 DATA | PC6 | J6.3. Was the heater PWM in rev B: never drive it as an output now |
 | I²C4 SDA / SCL | PD13 / PD12 | payload bus |
@@ -40,7 +41,7 @@ Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11, an MQ
 | Radio UART1 | PA10 / PA9 | 115200 8E1 to the comm board, ACK 0x06 |
 | USB-C (debug) | PA3 / PA2 | UART2, used by SensorTest / HB_Tune |
 
-I²C4: SHT21 0x40 · MAX30100 0x57 · **BMP280 #1 0x76 (SDO→GND, J8)** · **BMP280 #2 0x77 (SDO→VCC)**. I²C1: LSM6DS3 0x6A, LIS3MDL 0x1C, LM75A 0x4A, MS5611 0x77 (different bus, no clash with BMP280 #2).
+I²C4: SHT21 0x40 · **MAX30100 0x57 (snail 2 pulse, FIFO drained every 40 ms)** · **BMP280 0x76 (SDO→GND, J8)**. I²C1: LSM6DS3 0x6A, LIS3MDL 0x1C, LM75A 0x4A, MS5611 0x77.
 
 ## Build and test
 
@@ -67,7 +68,7 @@ Before claiming firmware work is done: PC tests pass, the ground script decodes 
 
 - **Only the TIM6 ISR calls `analogRead()`** in the flight code (PB0 at 50 Hz, PB1 at 5 Hz). `loop()` never touches the ADC.
 - **Never block `loop()`**: sensors are state machines; the 4 s watchdog resets the MCU otherwise. The DHT-11 bit read (~5 ms) starts right after an ISR tick (`last_tick_us`) so the 50 Hz interrupt can't stretch a bit.
-- **Maths stays Arduino-free** (`heartbeat`, `thermal`, `protocol`, `*_comp.h`, `dht11_decode.h`) so `test_host.cpp` can test it. New maths gets a test there.
+- **Maths stays Arduino-free** (`heartbeat`, `thermal`, `protocol`, `*_comp.h`, `dht11_decode.h`, `max30100_fifo.h`, `optical_pulse.h`) so `test_host.cpp` can test it. New maths gets a test there.
 - **Packet changes touch these places together:** the struct in `protocol.h` (+ its `static_assert` size), `ground/snailpulse_ground.py` (format string + old-size fallbacks), the checks in `ground/snailpulse_monitor.py` (`evaluate`, `demo_frames`), `radio_handoff/snailpulse_frames.h` (structs + size checks) and its README test frames, the frame dump in `test_host.cpp`, and the packet tables in `firmware/README.md` and `docs/Firmware_and_Integration.md`. Only **append** fields so old logs still decode. Every frame must fit one 58-byte LoRa packet (payload ≤ 51 B).
 - **Wiring changes touch the guides together:** the perfboard guide (layout JSON `L`, `NETS`, `WIRE`, `OFF`, `STEPS` + Requirements), the walkthrough text, `README.md`, and `config.h`. The perfboard guide stores ticked checks in `localStorage` keyed by step number; inserting a step needs the migration pattern already in the file.
 - Every frame leaves through `sendFrame()` in the sketch: comm board queue (`SP_OWN_RADIO`), USB-C copy (`SP_USB_MIRROR`, UART2 PA3/PA2) and the `sp_frame_out()` hook (`sp_hooks.h`, weak defaults in `sp_hooks.cpp`). Merged code (radio technician) plugs in through those hooks, never by editing `loop()`.

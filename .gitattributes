@@ -1,0 +1,3 @@
+# Scripts run on macOS/Linux: keep Unix line endings even when checked out or zipped on Windows
+*.sh text eol=lf
+*.py text eol=lf

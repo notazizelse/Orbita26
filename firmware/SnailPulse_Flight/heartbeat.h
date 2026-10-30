@@ -1,7 +1,8 @@
 // Snail heartbeat detector (pure C++, no Arduino dependency -> unit-tested on PC)
 //
-// Input : HB_ADC samples at HB_SAMPLE_HZ (already band-passed 0.16-3.4 Hz in hardware,
-//         centred on VREF = 1.65 V ~ 2048 counts)
+// Input : TCRT5000 path: HB_ADC samples at HB_SAMPLE_HZ (already band-passed 0.16-3.4 Hz in
+//         hardware, centred on VREF = 1.65 V ~ 2048 counts) - the defaults below.
+//         MAX30100 path: raw 16-bit IR samples at 100 Hz, see optical_pulse.h for its settings.
 // Output: beats/min, last inter-beat interval, signal quality, 10 Hz waveform for telemetry
 //
 // Snail (Cornu aspersum) hearts beat slowly: tens of beats/min, much lower when cold,
@@ -12,7 +13,10 @@
 
 class HeartbeatDetector {
  public:
-  explicit HeartbeatDetector(uint16_t fs_hz = 50, uint8_t wave_decim = 5);
+  // min_amp: smallest pulse (counts) that counts as a signal. sat_lo/sat_hi: samples outside
+  // count as clipping (sat_lo 0 = no low limit). wave_shift: waveform byte = sample >> shift.
+  explicit HeartbeatDetector(uint16_t fs_hz = 50, uint8_t wave_decim = 5, uint16_t min_amp = MIN_AMP,
+                             uint16_t sat_lo = 40, uint16_t sat_hi = 4055, uint8_t wave_shift = 4);
 
   // Feed one sample. t_ms = sample time. Returns true when a beat is detected.
   bool update(uint16_t adc, uint32_t t_ms);
@@ -31,13 +35,18 @@ class HeartbeatDetector {
   uint8_t  copy_wave(uint8_t *dst, uint8_t n) const;
   bool     beat_since_flag();          // true if a beat happened since the last call
   void     clear_saturation() { sat_count_ = 0; }
+  // Start over (sensor moved, samples lost): filters, rhythm and rate are cleared, the beat
+  // count since boot is kept. Needs ~2 s of new samples before it detects again.
+  void     restart();
 
   static const uint32_t MIN_IBI_MS = 400;   // 150 bpm
   static const uint32_t MAX_IBI_MS = 20000;
-  static const uint16_t MIN_AMP = 6;   // counts; below this the sensor sees no pulse
+  static const uint16_t MIN_AMP = 6;   // TCRT5000 default, counts; below this: no pulse
 
  private:
   float fs_, a_lp_, a_base_, env_decay_;
+  uint16_t min_amp_, sat_lo_, sat_hi_;
+  uint8_t wave_shift_;
   float lp_ = 2048, baseline_ = 2048, env_ = 0;
   bool armed_ = true, primed_ = false, beat_flag_ = false;
   uint32_t last_beat_ms_ = 0, now_ms_ = 0;

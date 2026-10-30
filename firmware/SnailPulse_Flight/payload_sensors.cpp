@@ -1,5 +1,6 @@
 #include "payload_sensors.h"
 #include "bmp280_comp.h"
+#include "max30100_fifo.h"
 
 uint8_t i2c_read_reg(TwoWire &w, uint8_t addr, uint8_t reg, uint8_t *buf, uint8_t n) {
   w.beginTransmission(addr);
@@ -124,20 +125,29 @@ bool MAX30100::begin() {
   return ok_;
 }
 
-bool MAX30100::read() {
-  uint8_t wr = 0, rp = 0;
-  if (i2c_read_reg(w_, addr_, 0x02, &wr, 1) != 1 || i2c_read_reg(w_, addr_, 0x04, &rp, 1) != 1) {
-    ok_ = false; errors++; return false;
+// Empties the FIFO: every sample since the last call, oldest first, up to 16 (0.16 s).
+// Called every MAX30100_POLL_MS (40 ms), so normally 4 samples. If it was full anyway
+// (loop was late), the stored samples are old: clear the FIFO and report lost = true.
+uint8_t MAX30100::drain(uint16_t *ir, bool &lost) {
+  uint8_t p[3];                                         // 0x02 WR_PTR, 0x03 OVF_COUNTER, 0x04 RD_PTR
+  lost = false;
+  if (i2c_read_reg(w_, addr_, 0x02, p, 3) != 3) { ok_ = false; errors++; return 0; }
+  uint8_t n = max30100_waiting(p[0], p[2], p[1], lost);
+  if (lost) {
+    if (!i2c_write_reg(w_, addr_, 0x02, 0) || !i2c_write_reg(w_, addr_, 0x03, 0) || !i2c_write_reg(w_, addr_, 0x04, 0)) {
+      ok_ = false; errors++;
+    }
+    return 0;
   }
-  uint8_t n = (uint8_t)((wr - rp) & 0x0F);
-  if (n == 0) n = 1;                       // FIFO full or nothing new: read one anyway
-  uint8_t s[4];
-  while (n--) {
-    if (i2c_read_reg(w_, addr_, 0x05, s, 4) != 4) { ok_ = false; errors++; return false; }
+  uint8_t got = 0, s[28];
+  while (got < n) {                                     // burst reads of up to 7 samples (28 B)
+    uint8_t k = (uint8_t)(n - got > 7 ? 7 : n - got);
+    if (i2c_read_reg(w_, addr_, 0x05, s, (uint8_t)(4 * k)) != 4 * k) { ok_ = false; errors++; break; }
+    for (uint8_t i = 0; i < k; i++) ir[got + i] = (uint16_t)s[4 * i] << 8 | s[4 * i + 1];
+    got = (uint8_t)(got + k);
   }
-  ir_ = (uint16_t)s[0] << 8 | s[1];
-  ok_ = true;
-  return true;
+  if (got) ir_ = ir[got - 1];
+  return got;
 }
 
 // ============================ DHT-11 ============================

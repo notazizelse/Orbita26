@@ -15,6 +15,8 @@
 #include "ms5611_comp.h"
 #include "radio.h"
 #include "dht11_decode.h"
+#include "max30100_fifo.h"
+#include "optical_pulse.h"
 
 static int fails = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -194,6 +196,51 @@ static void test_dht11() {
   CHECK(!dht11_decode(silly, t, rh), "dht RH > 100 rejected");
 }
 
+// ---------------------------------------------------------------- MAX30100 FIFO
+static void test_max30100_fifo() {
+  bool lost = true;
+  CHECK(max30100_waiting(0, 0, 0, lost) == 0 && !lost, "max fifo: empty");
+  CHECK(max30100_waiting(4, 0, 0, lost) == 4 && !lost, "max fifo: 4 waiting");
+  CHECK(max30100_waiting(2, 13, 0, lost) == 5 && !lost, "max fifo: write pointer wrapped -> 5");
+  CHECK(max30100_waiting(7, 7, 3, lost) == 16 && lost, "max fifo: full and overflowed -> 16, lost");
+  CHECK(max30100_waiting(0x14, 0x10, 0, lost) == 4, "max fifo: upper bits ignored");
+}
+
+// ---------------------------------------------------------------- MAX30100 optical pulse
+// Simulated IR at 100 Hz: DC level + pulse ripple (same shape as the TCRT5000 tests) + noise.
+// Returns bpm at the end; 'from_s' = when the sensor is put on (IR 200 = nothing in front before).
+static float run_optical(float bpm, float dc, float amp, float noise, uint32_t seconds, OpticalPulse &op,
+                         float from_s = 0, unsigned seed = 3) {
+  std::mt19937 rng(seed);
+  std::normal_distribution<float> nd(0, noise);
+  float ph = 0;
+  for (uint32_t i = 0; i < seconds * 100; i++) {
+    float t = i / 100.0f, v;
+    ph += bpm / 60.0f / 100.0f; if (ph >= 1) ph -= 1;
+    if (t < from_s) v = 200 + nd(rng) * 0.3f;
+    else v = dc + amp * pulse_shape(ph) + nd(rng) + 0.02f * dc * sinf(t / 7.0f);   // + slow drift
+    if (v < 0) v = 0; if (v > 65535) v = 65535;
+    op.update((uint16_t)v, i * 10);
+  }
+  return op.det().bpm_x10() / 10.0f;
+}
+static void test_optical_pulse() {
+  { OpticalPulse op; float b = run_optical(72, 30000, 400, 15, 60, op);      // fingertip
+    printf("MAX30100 finger 72 bpm -> %.1f bpm, quality %u\n", b, op.det().quality());
+    CHECK(fabsf(b - 72) < 3 && op.contact(), "optical: finger 72 bpm, got %.1f", b); }
+  { OpticalPulse op; float b = run_optical(30, 9000, 80, 8, 90, op);         // snail shell: slow, weak
+    printf("MAX30100 snail 30 bpm  -> %.1f bpm, quality %u\n", b, op.det().quality());
+    CHECK(fabsf(b - 30) < 2, "optical: snail 30 bpm, got %.1f", b); }
+  { OpticalPulse op; float b = run_optical(72, 30000, 0, 15, 30, op, 1000);  // nothing in front, ever
+    CHECK(b == 0 && !op.contact() && op.det().no_signal(), "optical: nothing in front = no rate, no contact"); }
+  { OpticalPulse op; float b = run_optical(72, 30000, 0, 6, 60, op);        // pressed on, no pulse at all
+    CHECK(b == 0 && op.contact(), "optical: contact without pulse = no rate (got %.1f)", b); }
+  { OpticalPulse op;                                                          // put on after 10 s
+    float b = run_optical(60, 25000, 350, 15, 30, op, 10);
+    printf("MAX30100 put on at 10 s -> %.1f bpm at 30 s (restarts %u)\n", b, op.restarts());
+    CHECK(fabsf(b - 60) < 3 && op.restarts() >= 1, "optical: recovers after being put on, got %.1f", b); }
+}
+
 // ---------------------------------------------------------------- radio queue
 struct FakeStream {
   std::vector<uint8_t> tx, rx;
@@ -223,14 +270,16 @@ static void test_radio() {
   // dump real frames for the Python ground-station test
   FILE *f = fopen("frames.bin", "wb");
   sp::SnailPayload sn = {}; sn.t_ms = 5000; sn.bpm_x10 = 245; sn.quality = 77; sn.wave_n = 20;
+  sn.max_bpm_x10 = 251; sn.max_beats_total = 40; sn.max_quality = 64; sn.max_flags = 1; sn.max_amp = 180; sn.max_ir = 9100;
+  CHECK(sizeof sn == 49 && sp::SNAIL_V1_SIZE == 39, "SNAIL size %zu", sizeof sn);
   for (int i = 0; i < 20; i++) sn.wave[i] = (uint8_t)(128 + 40 * sinf(i * 0.6f));
   sp::EnvPayload en = {}; en.t_ms = 6000; en.box_t_c100 = 1987; en.box_rh_c100 = 6543; en.box_press_pa = 101100;
   en.heater_t_c100 = -32768; en.heater_duty = 0; en.heater_mode = 0;
-  en.dht_t_c100 = 2100; en.dht_rh_c100 = 5500; en.mq7_mv = 412; en.sensors_ok = 0xF7;
-  en.bmp_t_c100 = 2010; en.box2_press_pa = 101080; en.bmp2_t_c100 = 2030;
+  en.dht_t_c100 = 2100; en.dht_rh_c100 = 5500; en.mq7_mv = 412; en.sensors_ok = 0x77;   // bit 7 (second BMP280) clear since fw 1.3
+  en.bmp_t_c100 = 2010; en.box2_press_pa = 0; en.bmp2_t_c100 = -32768;          // second BMP280 removed in fw 1.3
   CHECK(sizeof en == 36 && sp::ENV_V1_SIZE == 24, "ENV size %zu", sizeof en);
   sp::BasePayload ba = {}; ba.t_ms = 7000; ba.press_pa = 3000; ba.baro_t_c100 = -1234; ba.alt_dm = 238500; ba.acc_mg[2] = 1000;
-  sp::StatusPayload st = {}; st.t_ms = 8000; st.fw_version = 0x0102; st.boot_count = 3; st.fc_ok = 0x0F;
+  sp::StatusPayload st = {}; st.t_ms = 8000; st.fw_version = 0x0103; st.boot_count = 3; st.fc_ok = 0x0F;
   uint8_t fr[64]; size_t n;
   n = sp::build_frame(sp::PKT_SNAIL, 1, &sn, sizeof sn, fr); fwrite(fr, 1, n, f);
   fputc(0x06, f);                                        // stray byte between frames
@@ -238,6 +287,7 @@ static void test_radio() {
   n = sp::build_frame(sp::PKT_BASE, 3, &ba, sizeof ba, fr); fwrite(fr, 1, n, f);
   n = sp::build_frame(sp::PKT_STATUS, 4, &st, sizeof st, fr); fwrite(fr, 1, n, f);
   n = sp::build_frame(sp::PKT_ENV, 5, &en, sp::ENV_V1_SIZE, fr); fwrite(fr, 1, n, f);   // fw 1.1 frame
+  n = sp::build_frame(sp::PKT_SNAIL, 6, &sn, sp::SNAIL_V1_SIZE, fr); fwrite(fr, 1, n, f); // fw 1.2 frame
   fclose(f);
 }
 
@@ -247,6 +297,8 @@ int main() {
   test_thermal();
   test_sensors();
   test_dht11();
+  test_max30100_fifo();
+  test_optical_pulse();
   test_radio();
   printf(fails ? "\n%d CHECK(S) FAILED\n" : "\nALL TESTS PASSED\n", fails);
   return fails ? 1 : 0;

@@ -8,13 +8,19 @@
 //    * microSD over SDMMC2 with STM32SD (pins from the IntroSat guide)
 //  Added by SnailPulse:
 //    * heartbeat sampling (PB0, 50 Hz, timer interrupt) + beat detection
-//    * box environment: SHT21, 2x BMP280 (0x76 + 0x77), MAX30100 on I2C4; DHT-11 on PC6; MQ-7 on PB1
+//    * two snails: snail 1 on the TCRT5000 (PB0, 50 Hz, timer interrupt), snail 2 on the MAX30100
+//      (I2C4, 100 Hz); each has its own beat detector, both sent in the SNAIL packet
+//    * box environment: SHT21, BMP280 (0x76) on I2C4; DHT-11 on PC6; MQ-7 on PB1
 //    * (rev B only, SP_HEATER_ENABLED 1: heater NTC on PB1 + heater PWM on PC6)
 //    * binary packets (protocol.h) that each fit one 58-byte LoRa packet
 //
-//  Arduino IDE setup: Board "Generic STM32H7 Series", part "STM32H750VBTx",
+//  Arduino IDE setup: Board "Generic STM32H7 Series", Board part number "Generic H750VBTx",
 //  STM32 board package 2.12.0, libraries: IntroStratLib, STM32SD (+FatFs). Upload via ST-Link (SWD).
 // =====================================================================================
+// Stop with one clear message if the IDE is set to another chip (otherwise: dozens of "PA10 not declared").
+#if !defined(STM32H750xx)
+#error "Wrong board. Tools > Board > STM32 MCU based boards > Generic STM32H7 Series, then Tools > Board part number > Generic H750VBTx"
+#endif
 #include <Wire.h>
 #include <STM32SD.h>
 #include <IWatchdog.h>
@@ -26,6 +32,7 @@
 #include "protocol.h"
 #include "radio.h"
 #include "heartbeat.h"
+#include "optical_pulse.h"
 #include "thermal.h"
 #include "payload_sensors.h"
 #include "fc_baro.h"
@@ -53,13 +60,16 @@ LM75A   fcTemp(FcWire, ADDR_LM75A_FCM);
 FcBaro  baro(FcWire, ADDR_MS5611);
 
 SHT21    sht(PayloadWire, ADDR_SHT21);
-BMP280   bmp(PayloadWire, ADDR_BMP280);      // #1, SDO -> GND
-BMP280   bmp2(PayloadWire, ADDR_BMP280_B);   // #2, SDO -> VCC
-MAX30100 maxs(PayloadWire, ADDR_MAX30100);
+BMP280   bmp(PayloadWire, ADDR_BMP280);      // SDO -> GND
+#if SP_HAS_BMP280_2
+BMP280   bmp2(PayloadWire, ADDR_BMP280_B);   // second one, SDO -> VCC
+#endif
+MAX30100 maxs(PayloadWire, ADDR_MAX30100);   // second pulse sensor (optical)
 DHT11    dht(PIN_DHT11, DHT11_PERIOD_MS);
 
 RadioLink<FcSerial> radio(RadioSerial, RADIO_ACK_BYTE, RADIO_ACK_TIMEOUT_MS);
-HeartbeatDetector hb(HB_SAMPLE_HZ, HB_WAVE_DECIM);
+HeartbeatDetector hb(HB_SAMPLE_HZ, HB_WAVE_DECIM);   // pulse sensor 1: TCRT5000 -> amplifier -> PB0
+OpticalPulse      opt;                               // pulse sensor 2: MAX30100 IR, 100 Hz
 HeaterController heater(BOX_TARGET_C, HEATER_MAX_C);
 
 // ------------------------------ ADC sampling (timer ISR) ------------------------------
@@ -114,7 +124,7 @@ void sdBegin() {
   snprintf(name, sizeof name, "TLM%03u.CSV", boot_count % 1000);
   tlmFile = SD.open(name, FILE_WRITE);
   if (hbFile) hbFile.println("t_ms,hb_adc");
-  if (tlmFile) tlmFile.println("t_ms,type,fields...  (ENV adds dht_t_c100,dht_rh_c100,mq7_mv,box2_press_pa,bmp2_t_c100 since fw 1.2)");
+  if (tlmFile) tlmFile.println("t_ms,type,fields...  (ENV adds dht_t_c100,dht_rh_c100,mq7_mv,box2_press_pa,bmp2_t_c100 since fw 1.2; SNAIL adds snail 2 / MAX30100: bpm_x10,beats,quality,flags,amp,ir since fw 1.3)");
   if (!hbFile || !tlmFile) { sd_ok = false; sd_errors++; }
 }
 
@@ -142,7 +152,7 @@ float heater_c = NAN;
 uint16_t mq7_mv = 0xFFFF;      // 1 s average of MQ-7 AO, mV (0xFFFF = disabled / no data yet)
 uint8_t reset_cause = 0;
 uint32_t loop_max_ms = 0, ledOffAt = 0;
-uint32_t tSnail = 0, tBase = 0, tEnv = 0, tStatus = 0, tSlow = 0, tFlush = 0;
+uint32_t tSnail = 0, tBase = 0, tEnv = 0, tStatus = 0, tSlow = 0, tFlush = 0, tMax = 0, tMaxRetry = 0;
 
 static int16_t clamp16(float v) { return (int16_t)(v > 32767 ? 32767 : (v < -32768 ? -32768 : v)); }
 static int16_t c100(float v) { return isnan(v) ? (int16_t)-32768 : clamp16(v * 100.0f); }   // -32768 = invalid
@@ -200,10 +210,22 @@ void sendSnail(uint32_t now) {
   p.amp_counts = hb.amplitude();
   p.dc_counts = hb.dc_level();
   p.wave_n = hb.copy_wave(p.wave, sp::WAVE_N);
+  // pulse sensor 2: MAX30100 (optical)
+  HeartbeatDetector &m = opt.det();
+  bool max_ok = maxs.ok();
+  p.max_bpm_x10 = (max_ok && opt.contact()) ? m.bpm_x10() : 0;
+  p.max_beats_total = m.beats_total();
+  p.max_quality = (max_ok && opt.contact()) ? m.quality() : 0;
+  p.max_flags = (m.beat_since_flag() ? 1 : 0) | (opt.saturated() ? 2 : 0) | (m.no_signal() ? 4 : 0)
+              | (max_ok ? 0 : 8) | (opt.contact() ? 0 : 16);
+  opt.clear_saturation();
+  p.max_amp = m.amplitude();
+  p.max_ir = max_ok ? opt.last_ir() : 0;
   sendFrame(sp::PKT_SNAIL, &p, sizeof p);
-  char line[96];
-  snprintf(line, sizeof line, "%lu,SNAIL,%u,%u,%u,%u,%u,%u,%u", (unsigned long)now, p.bpm_x10, p.last_ibi_ms,
-           p.beats_total, p.quality, p.flags, p.amp_counts, p.dc_counts);
+  char line[128];
+  snprintf(line, sizeof line, "%lu,SNAIL,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u", (unsigned long)now, p.bpm_x10,
+           p.last_ibi_ms, p.beats_total, p.quality, p.flags, p.amp_counts, p.dc_counts,
+           p.max_bpm_x10, p.max_beats_total, p.max_quality, p.max_flags, p.max_amp, p.max_ir);
   sdLogLine(line);
 }
 
@@ -221,11 +243,18 @@ void sendEnv(uint32_t now) {
   p.dht_t_c100 = dht.ok() ? c100(dht.temperature()) : -32768;
   p.dht_rh_c100 = dht.ok() ? (uint16_t)(dht.humidity() * 100) : 0xFFFF;
   p.mq7_mv = mq7_mv;
-  p.box2_press_pa = bmp2.ok() ? bmp2.pressure_pa() : 0;
-  p.bmp2_t_c100 = bmp2.ok() ? c100(bmp2.temperature()) : -32768;
+#if SP_HAS_BMP280_2
+  bool bmp2_ok = bmp2.ok();
+  p.box2_press_pa = bmp2_ok ? bmp2.pressure_pa() : 0;
+  p.bmp2_t_c100 = bmp2_ok ? c100(bmp2.temperature()) : -32768;
+#else
+  bool bmp2_ok = false;                // removed 30 Oct: fields stay in the packet as "invalid"
+  p.box2_press_pa = 0;
+  p.bmp2_t_c100 = -32768;
+#endif
   bool mq7_ok = mq7_mv != 0xFFFF && mq7_mv > 5 && mq7_mv < 3290;   // 0 V = wire off, 3.3 V = saturated
   p.sensors_ok = (sht.ok() ? 1 : 0) | (bmp.ok() ? 2 : 0) | (maxs.ok() ? 4 : 0) | (!isnan(heater_c) ? 8 : 0) | (sd_ok ? 16 : 0)
-               | (dht.ok() ? 32 : 0) | (mq7_ok ? 64 : 0) | (bmp2.ok() ? 128 : 0);
+               | (dht.ok() ? 32 : 0) | (mq7_ok ? 64 : 0) | (bmp2_ok ? 128 : 0);
   sendFrame(sp::PKT_ENV, &p, sizeof p);
   char line[160];
   snprintf(line, sizeof line, "%lu,ENV,%d,%u,%lu,%d,%d,%u,%u,%u,%u,%d,%u,%u,%lu,%d", (unsigned long)now, p.box_t_c100, p.box_rh_c100,
@@ -243,7 +272,7 @@ void sendStatus(uint32_t now) {
   p.frames_sent = radio.sent();
   p.acks_missed = radio.missed_acks();
   p.frames_dropped = radio.dropped();
-  p.i2c_errors = sht.errors + bmp.errors + bmp2.errors + maxs.errors + baro.errors;   // DHT-11 health: ENV sensors_ok bit 5
+  p.i2c_errors = sht.errors + bmp.errors + maxs.errors + baro.errors;   // DHT-11 health: ENV sensors_ok bit 5
   p.sd_errors = sd_errors;
   p.loop_max_ms = (uint16_t)(loop_max_ms > 65535 ? 65535 : loop_max_ms);
   p.reset_cause = reset_cause;
@@ -286,8 +315,10 @@ void setup() {
   PayloadWire.setClock(100000);
   sht.begin();
   bmp.begin();
+#if SP_HAS_BMP280_2
   bmp2.begin();
-  maxs.begin();      // backup sensor - flight continues without it
+#endif
+  maxs.begin();      // second pulse sensor; retried every 5 s if it does not answer
 #if SP_HAS_DHT11
   dht.begin(millis());
 #endif
@@ -324,14 +355,30 @@ void loop() {
   }
   if (ledOffAt && (int32_t)(now - ledOffAt) >= 0) { digitalWrite(PIN_USER_LED, LOW); ledOffAt = 0; }
 
-  // 2) non-blocking sensors
+  // 2) pulse sensor 2: MAX30100. Empty its FIFO (~4 samples) and feed every sample to the
+  //    detector. Sample times are 10 ms apart, the newest is "now". Re-init if it stopped answering.
+  if (now - tMax >= MAX30100_POLL_MS) {
+    tMax = now;
+    if (maxs.ok()) {
+      uint16_t ir[16];
+      bool lost = false;
+      uint8_t n = maxs.drain(ir, lost);
+      if (lost) opt.samples_lost();
+      for (uint8_t i = 0; i < n; i++) opt.update(ir[i], now - (uint32_t)(n - 1 - i) * (1000 / OpticalPulse::FS_HZ));
+    } else if (now - tMaxRetry >= MAX30100_RETRY_MS) {
+      tMaxRetry = now;
+      if (maxs.begin()) opt.samples_lost();
+    }
+  }
+
+  // 3) non-blocking sensors
   sht.poll(now);
 #if SP_HAS_DHT11
   dht.poll(now, micros() - last_tick_us < 4000);   // >= 16 ms until the next 50 Hz tick
 #endif
   baro.poll(now);
 
-  // 3) once a second: slow sensors + heater control
+  // 4) once a second: slow sensors + heater control
   if (now - tSlow >= 1000) {
     float dt = (tSlow == 0) ? 1.0f : (now - tSlow) / 1000.0f;
     tSlow = now;
@@ -339,8 +386,9 @@ void loop() {
     heater_c = ntc_celsius(ntc1_raw, (1u << ADC_BITS) - 1, NTC_R_FIXED, NTC_R25, NTC_BETA);
 #endif
     if (!bmp.ok() && bmp.errors < 100) bmp.begin(); else if (bmp.ok()) bmp.read();
+#if SP_HAS_BMP280_2
     if (!bmp2.ok() && bmp2.errors < 100) bmp2.begin(); else if (bmp2.ok()) bmp2.read();
-    if (maxs.ok()) maxs.read();
+#endif
 #if SP_HEATER_ENABLED
     float box = sht.ok() ? sht.temperature() : NAN;
     analogWrite(PIN_HEATER_PWM, heater.update(box, heater_c, dt));
@@ -355,7 +403,7 @@ void loop() {
 #endif
   }
 
-  // 4) telemetry schedule
+  // 5) telemetry schedule
   if (now - tSnail  >= PERIOD_SNAIL_MS)  { tSnail = now;  sendSnail(now); }
   if (now - tBase   >= PERIOD_BASE_MS)   { tBase = now;   sendBase(now); }
   if (now - tEnv    >= PERIOD_ENV_MS)    { tEnv = now;    sendEnv(now); }
@@ -365,7 +413,7 @@ void loop() {
 #endif
   sp_ext_loop(now);   // merged code (sp_hooks.h), must not block
 
-  // 5) SD flush once a second
+  // 6) SD flush once a second
   if (now - tFlush >= 1000) { tFlush = now; sdFlush(); }
 
   IWatchdog.reload();

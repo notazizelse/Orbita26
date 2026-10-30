@@ -1,8 +1,10 @@
 #include "heartbeat.h"
 #include <math.h>
 
-HeartbeatDetector::HeartbeatDetector(uint16_t fs_hz, uint8_t wave_decim)
-    : fs_(fs_hz), decim_(wave_decim) {
+HeartbeatDetector::HeartbeatDetector(uint16_t fs_hz, uint8_t wave_decim, uint16_t min_amp,
+                                     uint16_t sat_lo, uint16_t sat_hi, uint8_t wave_shift)
+    : fs_(fs_hz), min_amp_(min_amp), sat_lo_(sat_lo), sat_hi_(sat_hi), wave_shift_(wave_shift),
+      decim_(wave_decim) {
   a_lp_      = 1.0f - expf(-1.0f / (0.08f * fs_));   // smoothing, tau 80 ms
   a_base_    = 1.0f - expf(-1.0f / (6.0f * fs_));    // baseline, tau 6 s
   env_decay_ = expf(-1.0f / (6.0f * fs_));           // envelope release, tau 6 s
@@ -11,12 +13,13 @@ HeartbeatDetector::HeartbeatDetector(uint16_t fs_hz, uint8_t wave_decim)
 bool HeartbeatDetector::update(uint16_t adc, uint32_t t_ms) {
   now_ms_ = t_ms;
   n_samples_++;
-  if (adc < 40 || adc > 4055) sat_count_++;
+  if (adc < sat_lo_ || adc > sat_hi_) sat_count_++;
 
   // --- waveform for telemetry: average of `decim_` samples, 8-bit ---
   dsum_ += adc;
   if (++dcount_ >= decim_) {
-    wave_[w_head_] = (uint8_t)((dsum_ / dcount_) >> 4);
+    uint32_t w = (dsum_ / dcount_) >> wave_shift_;
+    wave_[w_head_] = (uint8_t)(w > 255 ? 255 : w);
     w_head_ = (uint8_t)((w_head_ + 1) % WN);
     if (w_count_ < WN) w_count_++;
     dsum_ = 0; dcount_ = 0;
@@ -36,7 +39,7 @@ bool HeartbeatDetector::update(uint16_t adc, uint32_t t_ms) {
   // --- beat = upward crossing of +40 % of envelope, re-armed below 10 % ---
   float thr = 0.4f * env_;
   bool beat = false;
-  if (env_ >= MIN_AMP) {
+  if (env_ >= min_amp_) {
     if (armed_ && d > thr) {
       uint32_t ibi = t_ms - last_beat_ms_;
       // refractory: never faster than 150 bpm, and (once the rhythm is known) ignore
@@ -63,7 +66,13 @@ bool HeartbeatDetector::update(uint16_t adc, uint32_t t_ms) {
   return beat;
 }
 
-bool HeartbeatDetector::no_signal() const { return env_ < MIN_AMP; }
+bool HeartbeatDetector::no_signal() const { return env_ < min_amp_; }
+
+void HeartbeatDetector::restart() {
+  primed_ = false; armed_ = true; beat_flag_ = false;
+  env_ = 0; n_samples_ = 0; last_beat_ms_ = 0; last_ibi_ = 0;
+  ibi_n_ = 0; ibi_i_ = 0; sat_count_ = 0;
+}
 
 uint16_t HeartbeatDetector::median_ibi() const {
   if (ibi_n_ < 2) return 0;
@@ -91,7 +100,7 @@ uint8_t HeartbeatDetector::quality() const {
   for (uint8_t i = 0; i < ibi_n_; i++) v += (ibi_[i] - m) * (ibi_[i] - m);
   float cv = sqrtf(v / ibi_n_) / m;
   float q = 100.0f * (1.0f - 2.0f * cv);             // cv 0 -> 100, cv 0.5 -> 0
-  if (env_ < 3 * MIN_AMP) q *= env_ / (3.0f * MIN_AMP);   // weak signal penalty
+  if (env_ < 3 * min_amp_) q *= env_ / (3.0f * min_amp_);   // weak signal penalty
   if (sat_count_) q *= 0.5f;
   if (q < 0) q = 0;
   if (q > 100) q = 100;

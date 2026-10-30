@@ -3,7 +3,7 @@
 **Measuring a living snail's heartbeat in the stratosphere.**
 International Space Tournament *Orbita* 2026 · 3U CubeSat on the IntroSat.Platform · Team mentor: Ezoza Yuldosheva · Electronics and firmware: Azizbek No'monjonov
 
-We fly a garden snail (*Cornu aspersum*) to about 24 km. An infrared sensor glued to its shell watches the heart beat through the shell. An analog band-pass amplifier pulls out the tiny signal. The satellite's flight controller counts the beats and radios them to the ground every 2 seconds. Meanwhile a heater keeps the snail's box at 20 °C, and a hardware cutoff protects it even if the software fails.
+We fly two garden snails (*Cornu aspersum*) to about 24 km. Each has an infrared sensor glued to its shell that watches the heart beat through the shell. **Snail 1** has a TCRT5000 whose tiny signal goes through our analog band-pass amplifier into PB0. **Snail 2** has a MAX30100 optical pulse sensor read over I²C. The satellite's flight controller counts both hearts' beats and radios them to the ground every 2 seconds. Meanwhile a heater keeps the snail's box at 20 °C, and a hardware cutoff protects it even if the software fails.
 
 ![SnailPulse 3D preview](docs/3d/snailpulse_3d_iso.png)
 
@@ -77,10 +77,9 @@ SnailPulse doesn't replace any platform board. It adds one payload board and our
 | **J6** (5-pin) | IntroBus_L | PB0 heartbeat ADC · PB1 MQ-7 AO (rev B: heater thermistor) · PC6 DHT-11 data (rev B: heater PWM) · PD12/PD13 I²C4 |
 | **J5** (3-pin) | IntroBus_L | +5V_IS · +3V3_IS · GND |
 | **J2** (XT30) | Power module X8 | 14.8 V for the heater only (red +, black −) |
-| **J7 / J8 / J9** | SHT21 · BMP280 · MAX30100 | I²C4 at 0x40 · 0x76 · 0x57 |
-| (same bus) | second BMP280 (added 29 Oct) | I²C4 at 0x77 (SDO → VCC) |
+| **J7 / J8 / J9** | SHT21 · BMP280 · MAX30100 (snail 2's pulse sensor) | I²C4 at 0x40 · 0x76 · 0x57 |
 
-Data path: PB0 is sampled at 50 Hz in a timer interrupt → beat detector → binary packet → UART1 → communication board → LoRa 433 MHz → ground LoRa-UART module → `ground/snailpulse_ground.py`. The full story, with the pin table, power budget and failure handling, is in [docs/Firmware_and_Integration.md](docs/Firmware_and_Integration.md).
+Data path: PB0 (snail 1) is sampled at 50 Hz in a timer interrupt and the MAX30100 (snail 2) is read at 100 Hz over I²C4 → one beat detector per snail → binary packet → UART1 → communication board → LoRa 433 MHz → ground LoRa-UART module → `ground/snailpulse_ground.py`. The full story, with the pin table, power budget and failure handling, is in [docs/Firmware_and_Integration.md](docs/Firmware_and_Integration.md).
 
 ## 3D preview
 
@@ -153,9 +152,9 @@ The flight controller sends four binary packet types. Each fits in one 58-byte L
 
 | Packet | Every | Contents |
 |---|---|---|
-| SNAIL | 2 s | heart rate, last beat interval, beat count, signal quality, 2 s of waveform at 10 Hz |
+| SNAIL | 2 s | snail 1 (TCRT5000): heart rate, last beat interval, beat count, signal quality, 2 s of waveform at 10 Hz · snail 2 (MAX30100): heart rate, beat count, quality, IR level |
 | BASE | 2 s | flight-controller sensors: pressure, ISA altitude, accel, gyro, magnetometer, board temperature |
-| ENV | 4 s | box temperature, humidity and pressure (SHT21, two BMP280s), DHT-11 temperature/humidity, MQ-7 gas level, sensor status |
+| ENV | 4 s | box temperature, humidity and pressure (SHT21, BMP280), DHT-11 temperature/humidity, MQ-7 gas level, sensor status |
 | STATUS | 10 s | firmware version, boot count, radio and I²C/SD error counters, watchdog resets |
 
 Total is about 435 bit/s, 18 % of the 2.4 kbit/s link. Everything is also logged to microSD at full rate.
