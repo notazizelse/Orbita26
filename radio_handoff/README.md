@@ -18,11 +18,16 @@ SnailPulse is our payload on the IntroSat flight controller (FC). It produces sm
 
 The Arduino sketches carry a copy of `snailpulse_frames.h` in their own folder (the IDE only compiles files inside the sketch folder). If you change the header, copy it into `ground_receiver/` and both `fc_sketches/` folders: the PC tests (`firmware/tests`) fail while the copies differ.
 
-To hand it over as one zip (run in the `Orbita26` folder):
+To hand everything over as one zip, run this in the `Orbita26` folder. It packs only committed files (no git history, no team budget or letters): this folder, the ground tools, all the firmware (flight, test sketches, PC tests, E32 setup script), the setup docs and both IntroSat.Platform guides (they describe the comm board):
 
 ```bash
-git archive -o snailpulse_radio_handoff.zip HEAD radio_handoff ground firmware/SnailPulse_Flight \n    firmware/build_backup/e32_config.py docs/Software_Setup.md docs/Bench_Test.md
+git -c core.autocrlf=false archive --format=zip --prefix=SnailPulse_radio_kit/ -o ../SnailPulse_radio_kit.zip HEAD \
+    README.md radio_handoff ground firmware scripts \
+    docs/Software_Setup.md docs/Bench_Test.md docs/Firmware_and_Integration.md \
+    "resources/IntroSat.Platform_ short guide 2.pdf" "resources/IntroSat.Platform_ краткое руководство.pdf"
 ```
+
+About 24 MB, mostly the two PDFs. Keep the folders together: `tools/sp_link_tool.py` loads the decoder from `ground/`. On a Mac unpack it with `ditto -x -k SnailPulse_radio_kit.zip .` (the built-in `unzip` breaks the Russian file name).
 
 ---
 
