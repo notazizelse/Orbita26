@@ -4,7 +4,7 @@ Where the work stands, what is verified, and what to do next. Project rules and 
 
 ## State in one paragraph
 
-Rev C SnailPulse (heartbeat only, no heater) gained three sensors on 29 Oct 2026: a **DHT-11** (DATA → PC6), an **MQ-7** (AO → PB1), both on +3.3 V, and a **second BMP280** on the same I²C4 bus. BMP280 #1 keeps SDO → GND (0x76) and BMP280 #2 has SDO → VCC (0x77). The flight firmware (fw 1.2), a new sensor-test sketch, the ground station and both build guides support all of them. **30 Oct (fw 1.3): two snails, one BMP280.** Snail 1 = TCRT5000 → amplifier → PB0, snail 2 = MAX30100 (I²C4 0x57), each with its own heart rate in the SNAIL packet (now 49 bytes). The second BMP280 was dropped: its ENV fields stay but are always empty, so a healthy board is **ok=0x77**. Merged into `main` from pull request **#1** (https://github.com/notazizelse/Orbita26/pull/1). SensorTest has run on the FC; the flight firmware has not.
+Rev C SnailPulse (heartbeat only, no heater) gained three sensors on 29 Oct 2026: a **DHT-11** (DATA → PC6), an **MQ-7** (AO → PB1), both on +3.3 V, and a **second BMP280** on the same I²C4 bus. BMP280 #1 keeps SDO → GND (0x76) and BMP280 #2 has SDO → VCC (0x77). The flight firmware (fw 1.2), a new sensor-test sketch, the ground station and both build guides support all of them. **30 Oct (fw 1.3): two snails, one BMP280.** Snail 1 = TCRT5000 → amplifier → PB0, snail 2 = MAX30100 (I²C4 0x57), each with its own heart rate in the SNAIL packet (now 49 bytes). The second BMP280 was dropped: its ENV fields stay but are always empty, so a healthy board is **ok=0x77**. All of it is on `main` (pull requests #1 and #2, then the 30 Oct work merged directly). SensorTest has run on the FC; the flight firmware has not.
 
 ## What was done
 
@@ -38,7 +38,7 @@ Rev C SnailPulse (heartbeat only, no heater) gained three sensors on 29 Oct 2026
 1. **Bench run with SensorTest.** Build and flash `firmware/tools/SensorTest` (`docs/Software_Setup.md` section 5) and fix every FAIL. The voltage checks to do first are in the perfboard guide, steps 10 and 11.
 2. **Confirm the FC's USB-C is UART2 (PA3/PA2).** That comes from earlier team notes, not the IntroSat guide. If nothing prints, set `MIRROR_UART1 1` in SensorTest and read UART1 through the Bluetooth module.
 3. **Flight firmware on the FC.** STATUS should say fw 1.3, ENV `ok=0x77`, both snails' heart rates on the monitor. The 30 Oct SensorTest live log showed ~60-count dips on PB0 every ~2.2 s with matching MQ-7 jumps: likely the comm board's radio. Stream with `p` with the comm board off to confirm; those dips can make snail 1 count false beats. Watch `loop_max_ms` (the DHT-11 read adds ~5 ms every 2 s) and the DHT-11 failure rate.
-4. **Done 30 Oct:** PR #1 merged into `main`.
+4. **Done 30 Oct:** everything merged into `main`.
 5. **Update the KiCad schematic** (`hardware/kicad_revC`): remove the no-connect flags on J6.2/J6.3, add the DHT-11 and MQ-7 connectors (no second BMP280), then re-export the walkthrough pictures.
 6. **Decide the MQ-7 supply.** On 3.3 V its heater runs at ~45 % power, so it shows changes, not ppm. On 5 V it needs a divider before PB1 (10 kΩ AO → PB1, 20 kΩ PB1 → GND). Either way, keep its warm can away from the snail and the temperature sensors.
 7. **Freezer run** of the whole stack (~3 h), as planned before.
