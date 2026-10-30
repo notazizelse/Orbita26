@@ -21,6 +21,8 @@ Hardware is **rev C**: heartbeat only, no heater. On 29 Oct 2026 a DHT-11 and an
 | `ground/snailpulse_ground.py` | Ground-station decoder (serial → console + CSV + plots); `Parser`/`decode` are reused by the monitor |
 | `ground/snailpulse_monitor.py` | Live ground screen in the browser: every sensor OK/WARN/FAIL + charts (`--demo`, `--file`) |
 | `radio_handoff/` | For the radio technician: link contract, `snailpulse_frames.h` (C99 parser + structs), FC hook template, ground receiver |
+| `radio_handoff/fc_sketches/` | FC test sketches for the radio link: `LinkTest_FC` (test frames + ACK stats), `CommBridge_FC` (USB-C ↔ comm board) |
+| `radio_handoff/tools/sp_link_tool.py` | PC tool via a USB-UART adapter: `fake-comm` / `fake-fc` / `selftest` |
 | `scripts/mac_setup.sh` | Mac setup: fixes a stuck Arduino IDE, installs core/libs/ST-Link tools, `.venv` for the monitor; `--arduino15 <bundle>` works with no arduino.cc |
 | `scripts/build_mac_arduino_bundle.py` | Builds that offline Arduino bundle for a Mac on any PC outside Russia (keeps Unix modes/symlinks, nothing unpacked locally) |
 | `docs/Bench_Test.md` | Cables, power order, upload settings, what the monitor's states mean |
@@ -63,14 +65,14 @@ g++ -std=c++17 -O1 -Wall -I../SnailPulse_Flight test_host.cpp ../SnailPulse_Flig
 python ../../ground/snailpulse_ground.py --file frames.bin --out /tmp/gs     # decode the frames the test wrote
 ```
 
-Before claiming firmware work is done: PC tests pass, the ground script decodes `frames.bin`, and all three sketches compile with no warnings from our files (IntroStratLib's `I2C_Err.h` warns on its own; ignore it).
+Before claiming firmware work is done: PC tests pass, the ground script decodes `frames.bin`, and every FC sketch (flight, SensorTest, HB_Tune, MAX30100_Pulse, LinkTest_FC, CommBridge_FC) compiles with no warnings from our files (IntroStratLib's `I2C_Err.h` warns on its own; ignore it).
 
 ## Rules that keep things working
 
 - **Only the TIM6 ISR calls `analogRead()`** in the flight code (PB0 at 50 Hz, PB1 at 5 Hz). `loop()` never touches the ADC.
 - **Never block `loop()`**: sensors are state machines; the 4 s watchdog resets the MCU otherwise. The DHT-11 bit read (~5 ms) starts right after an ISR tick (`last_tick_us`) so the 50 Hz interrupt can't stretch a bit.
 - **Maths stays Arduino-free** (`heartbeat`, `thermal`, `protocol`, `*_comp.h`, `dht11_decode.h`, `max30100_fifo.h`, `optical_pulse.h`, `mq7_scale.h`) so `test_host.cpp` can test it. New maths gets a test there.
-- **Packet changes touch these places together:** the struct in `protocol.h` (+ its `static_assert` size), `ground/snailpulse_ground.py` (format string + old-size fallbacks), the checks in `ground/snailpulse_monitor.py` (`evaluate`, `demo_frames`), `radio_handoff/snailpulse_frames.h` (structs + size checks) and its README test frames, the frame dump in `test_host.cpp`, and the packet tables in `firmware/README.md` and `docs/Firmware_and_Integration.md`. Only **append** fields so old logs still decode. Every frame must fit one 58-byte LoRa packet (payload ≤ 51 B).
+- **Packet changes touch these places together:** the struct in `protocol.h` (+ its `static_assert` size), `ground/snailpulse_ground.py` (format string + old-size fallbacks), the checks in `ground/snailpulse_monitor.py` (`evaluate`, `demo_frames`), `radio_handoff/snailpulse_frames.h` (structs + size checks; then copy it into `ground_receiver/` and both `fc_sketches/` folders, the PC tests fail while copies differ) and its README test frames, the test values in `LinkTest_FC`, `CommBridge_FC` and `sp_link_tool.py`, the frame dump in `test_host.cpp`, and the packet tables in `firmware/README.md` and `docs/Firmware_and_Integration.md`. Only **append** fields so old logs still decode. Every frame must fit one 58-byte LoRa packet (payload ≤ 51 B).
 - **Wiring changes touch the guides together:** the perfboard guide (layout JSON `L`, `NETS`, `WIRE`, `OFF`, `STEPS` + Requirements), the walkthrough text, `README.md`, and `config.h`. The perfboard guide stores ticked checks in `localStorage` keyed by step number; inserting a step needs the migration pattern already in the file.
 - Every frame leaves through `sendFrame()` in the sketch: comm board queue (`SP_OWN_RADIO`), USB-C copy (`SP_USB_MIRROR`, UART2 PA3/PA2) and the `sp_frame_out()` hook (`sp_hooks.h`, weak defaults in `sp_hooks.cpp`). Merged code (radio technician) plugs in through those hooks, never by editing `loop()`.
 - `SP_HEATER_ENABLED` must stay 0 while the DHT-11 / MQ-7 use PC6 / PB1 (`config.h` has an `#error` for it).

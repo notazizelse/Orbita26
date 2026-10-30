@@ -2,7 +2,7 @@
 // Only needed if the ground E32 is on a microcontroller. With a plain USB-UART adapter on the E32,
 // run ground/snailpulse_monitor.py on the adapter's port directly instead.
 //
-// Copy ../snailpulse_frames.h into this folder first.
+// snailpulse_frames.h in this folder is a copy of ../snailpulse_frames.h (the PC tests check they match).
 //
 // Wiring (E32-433T30D):  TXD -> board RX1,  RXD -> board TX1,  M0 + M1 -> GND (normal mode),
 //                        VCC -> 5 V (it draws ~1 A when transmitting), GND -> GND.

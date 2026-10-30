@@ -18,6 +18,7 @@
 #include "max30100_fifo.h"
 #include "optical_pulse.h"
 #include "mq7_scale.h"
+#include "../../radio_handoff/snailpulse_frames.h"   // the radio technician's header: must match protocol.h
 
 static int fails = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -255,6 +256,49 @@ static void test_optical_pulse() {
     CHECK(fabsf(b - 60) < 3 && op.restarts() >= 1, "optical: recovers after being put on, got %.1f", b); }
 }
 
+// ---------------------------------------------------------------- radio_handoff/snailpulse_frames.h
+static std::vector<char> slurp(const char *path) {
+  std::vector<char> v;
+  FILE *f = fopen(path, "rb");
+  if (!f) return v;
+  int c;
+  while ((c = fgetc(f)) != EOF) if (c != '\r') v.push_back((char)c);   // ignore CRLF vs LF checkouts
+  fclose(f);
+  return v;
+}
+static void test_radio_handoff() {
+  CHECK(sizeof(sp_base_t) == sizeof(sp::BasePayload) && sizeof(sp_snail_t) == sizeof(sp::SnailPayload) &&
+        sizeof(sp_env_t) == sizeof(sp::EnvPayload) && sizeof(sp_status_t) == sizeof(sp::StatusPayload),
+        "radio_handoff structs have the same sizes as protocol.h");
+  CHECK(SP_MAX_PAYLOAD == sp::MAX_PAYLOAD && SP_LORA_PACKET == sp::LORA_PACKET, "radio_handoff limits");
+  // the same payload through both frame builders gives the same bytes, and the C parser accepts it
+  sp::EnvPayload en = {}; en.t_ms = 1234; en.box_t_c100 = -32768; en.sensors_ok = 0x76; en.mq7_mv = 999;
+  uint8_t a[64], b[64];
+  size_t na = sp::build_frame(sp::PKT_ENV, 42, &en, sizeof en, a);
+  size_t nb = sp_build_frame(SP_PKT_ENV, 42, &en, (uint8_t)sizeof en, b);
+  CHECK(na == nb && memcmp(a, b, na) == 0, "sp_build_frame matches sp::build_frame");
+  const uint8_t s9[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+  CHECK(sp_crc16(s9, 9) == 0x29B1, "sp_crc16 check value");
+  sp_parser_t p; sp_parser_init(&p);
+  int got = 0;
+  for (size_t i = 0; i < na; i++) got += sp_parser_feed(&p, a[i]);
+  sp_env_t e2; memcpy(&e2, p.payload, sizeof e2);
+  CHECK(got == 1 && p.type == SP_PKT_ENV && p.seq == 42 && e2.mq7_mv == 999 && e2.sensors_ok == 0x76 &&
+        p.raw_len == na && memcmp(p.raw, a, na) == 0, "sp_parser_feed reads a flight frame");
+  a[10] ^= 0x01;
+  got = 0;
+  for (size_t i = 0; i < na; i++) got += sp_parser_feed(&p, a[i]);
+  CHECK(got == 0 && p.crc_errors == 1, "sp_parser_feed rejects a flipped byte");
+  // Arduino sketches only compile files in their own folder, so they carry copies of the header
+  std::vector<char> ref = slurp("../../radio_handoff/snailpulse_frames.h");
+  CHECK(!ref.empty(), "can read radio_handoff/snailpulse_frames.h (run the tests from firmware/tests)");
+  const char *copies[] = {"../../radio_handoff/ground_receiver/snailpulse_frames.h",
+                          "../../radio_handoff/fc_sketches/LinkTest_FC/snailpulse_frames.h",
+                          "../../radio_handoff/fc_sketches/CommBridge_FC/snailpulse_frames.h"};
+  for (const char *c : copies)
+    CHECK(slurp(c) == ref, "%s differs from radio_handoff/snailpulse_frames.h: copy it again", c);
+}
+
 // ---------------------------------------------------------------- radio queue
 struct FakeStream {
   std::vector<uint8_t> tx, rx;
@@ -287,13 +331,14 @@ static void test_radio() {
   sn.max_bpm_x10 = 251; sn.max_beats_total = 40; sn.max_quality = 64; sn.max_flags = 1; sn.max_amp = 180; sn.max_ir = 9100;
   CHECK(sizeof sn == 49 && sp::SNAIL_V1_SIZE == 39, "SNAIL size %zu", sizeof sn);
   for (int i = 0; i < 20; i++) sn.wave[i] = (uint8_t)(128 + 40 * sinf(i * 0.6f));
-  sp::EnvPayload en = {}; en.t_ms = 6000; en.box_t_c100 = 1987; en.box_rh_c100 = 6543; en.box_press_pa = 101100;
+  sp::EnvPayload en = {}; en.t_ms = 6000; en.box_press_pa = 101100;
+  en.box_t_c100 = -32768; en.box_rh_c100 = 0xFFFF;                               // SHT21 removed in fw 1.5: invalid
   en.heater_t_c100 = -32768; en.heater_duty = 0; en.heater_mode = 0;
-  en.dht_t_c100 = 2100; en.dht_rh_c100 = 5500; en.mq7_mv = 412; en.sensors_ok = 0x77;   // bit 7 (second BMP280) clear since fw 1.3
+  en.dht_t_c100 = 2100; en.dht_rh_c100 = 5500; en.mq7_mv = 412; en.sensors_ok = 0x76;   // fw 1.5: bits 0 (SHT21) and 7 (BMP2) clear
   en.bmp_t_c100 = 2010; en.box2_press_pa = 0; en.bmp2_t_c100 = -32768;          // second BMP280 removed in fw 1.3
   CHECK(sizeof en == 36 && sp::ENV_V1_SIZE == 24, "ENV size %zu", sizeof en);
   sp::BasePayload ba = {}; ba.t_ms = 7000; ba.press_pa = 3000; ba.baro_t_c100 = -1234; ba.alt_dm = 238500; ba.acc_mg[2] = 1000;
-  sp::StatusPayload st = {}; st.t_ms = 8000; st.fw_version = 0x0103; st.boot_count = 3; st.fc_ok = 0x0F;
+  sp::StatusPayload st = {}; st.t_ms = 8000; st.fw_version = 0x0105; st.boot_count = 3; st.fc_ok = 0x0F;
   uint8_t fr[64]; size_t n;
   n = sp::build_frame(sp::PKT_SNAIL, 1, &sn, sizeof sn, fr); fwrite(fr, 1, n, f);
   fputc(0x06, f);                                        // stray byte between frames
@@ -315,6 +360,7 @@ int main() {
   test_max30100_fifo();
   test_optical_pulse();
   test_radio();
+  test_radio_handoff();
   printf(fails ? "\n%d CHECK(S) FAILED\n" : "\nALL TESTS PASSED\n", fails);
   return fails ? 1 : 0;
 }
